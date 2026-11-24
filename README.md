@@ -76,7 +76,7 @@ docs/SOLUCION-DE-ERRORES.md diagnóstico, fallas típicas y laboratorio de falla
 
 ## Probar en tu PC (opcional, antes de AWS)
 
-Requiere Docker Desktop.
+Guía detallada: **[docs/LOCAL.md](docs/LOCAL.md)**. Versión corta (requiere Docker Desktop):
 ```powershell
 Copy-Item .env.example .env      # pon cualquier contraseña en DB_PASSWORD
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build

@@ -2,6 +2,9 @@
 -- La app lo crea sola al arrancar, pero puedes ejecutarlo a mano desde el EC2:
 --   mysql -h <ENDPOINT_RDS> -u admin -p < db/init.sql
 
+-- Sin esto, el cliente mysql puede leer el archivo como latin1 y los acentos salen como "Ã©".
+SET NAMES utf8mb4;
+
 CREATE DATABASE IF NOT EXISTS diario CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE diario;
 

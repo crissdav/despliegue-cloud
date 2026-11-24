@@ -1,22 +1,28 @@
-<%- include('partials/cabecera', { tituloPagina: entrada.titulo }) %>
+<%- include('partials/cabecera', { tituloPagina: entrada.titulo, volver: '/' }) %>
 
-<article class="entrada animo-<%= entrada.animo %>">
-  <div class="meta">
-    <time datetime="<%= entrada.fecha %>"><%= entrada.fecha %></time>
-    <span><%= ANIMOS[entrada.animo] %></span>
-  </div>
-  <h1><%= entrada.titulo %></h1>
-  <div class="contenido"><%= entrada.contenido %></div>
-  <p class="nota">Creada: <%= entrada.creado_en %> · Última edición: <%= entrada.actualizado_en %></p>
+<article class="lectura animo-<%= entrada.animo %>">
+  <header class="lectura-cabecera">
+    <p class="lectura-meta">
+      <span class="etiqueta-animo"><%- icono(entrada.animo) %><%= ANIMOS[entrada.animo] %></span>
+      <time datetime="<%= entrada.fecha %>"><%= fecha.larga(entrada.fecha) %></time>
+    </p>
+    <h1 class="lectura-titulo"><%= entrada.titulo %></h1>
+  </header>
+
+  <div class="lectura-texto"><%= entrada.contenido %></div>
+
+  <p class="lectura-nota">
+    Escrita el <%= fecha.momento(entrada.creado_en) %><% if (entrada.actualizado_en !== entrada.creado_en) { %>
+    · editada el <%= fecha.momento(entrada.actualizado_en) %><% } %>
+  </p>
 </article>
 
 <div class="acciones">
-  <a class="boton" href="/entradas/<%= entrada.id %>/editar">Editar</a>
+  <a class="boton boton-secundario" href="/entradas/<%= entrada.id %>/editar"><%- icono('editar') %>Editar</a>
   <form method="post" action="/entradas/<%= entrada.id %>/eliminar"
-        onsubmit="return confirm('¿Eliminar esta entrada? No se puede deshacer.')">
-    <button type="submit" class="peligro">Eliminar</button>
+        onsubmit="return confirm('¿Eliminar «<%= entrada.titulo.replace(/['\\]/g, '') %>»? Esta acción no se puede deshacer.')">
+    <button type="submit" class="boton boton-peligro"><%- icono('borrar') %>Eliminar</button>
   </form>
-  <a href="/">← Volver</a>
 </div>
 
 <%- include('partials/pie') %>

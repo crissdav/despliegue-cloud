@@ -1,6 +1,10 @@
+<% const _fab = typeof fab !== 'undefined' && fab; %>
   </main>
   <footer class="pie">
-    Desplegado en AWS EC2 + RDS MySQL · <a href="/health">Estado del sistema (/health)</a>
+    <a href="/health">Estado del sistema</a>
   </footer>
+  <% if (_fab) { %>
+    <a class="fab solo-movil" href="/entradas/nueva" aria-label="Nueva entrada"><%- icono('mas') %></a>
+  <% } %>
 </body>
 </html>

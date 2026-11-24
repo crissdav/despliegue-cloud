@@ -7,17 +7,37 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
 const ANIMOS = {
-  feliz: '😄 Feliz',
-  tranquilo: '😌 Tranquilo',
-  neutral: '😐 Neutral',
-  triste: '😢 Triste',
-  enojado: '😠 Enojado',
-  ansioso: '😰 Ansioso',
+  feliz: 'Feliz',
+  tranquilo: 'Tranquilo',
+  neutral: 'Neutral',
+  triste: 'Triste',
+  enojado: 'Enojado',
+  ansioso: 'Ansioso',
 };
+
+// Zona horaria del usuario (para la fecha "de hoy" y las horas de creación/edición).
+const TZ = process.env.APP_TZ || 'America/Lima';
+
+// Fechas en español. Las columnas DATE llegan como 'YYYY-MM-DD'.
+const aFecha = (s) => new Date(`${s}T12:00:00Z`);
+const formato = (opciones) => new Intl.DateTimeFormat('es', { timeZone: 'UTC', ...opciones });
+const fecha = {
+  larga: (s) => formato({ weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(aFecha(s)),
+  dia: (s) => Number(String(s).slice(8, 10)),
+  semana: (s) => formato({ weekday: 'short' }).format(aFecha(s)).replace('.', ''),
+  mes: (s) => formato({ month: 'long', year: 'numeric' }).format(aFecha(s)),
+  // TIMESTAMP de MySQL (guardado en UTC) -> hora local del usuario
+  momento: (ts) => new Intl.DateTimeFormat('es', { timeZone: TZ, dateStyle: 'medium', timeStyle: 'short' })
+    .format(new Date(`${String(ts).replace(' ', 'T')}Z`)),
+};
+
+// Ícono SVG del sprite definido en views/partials/iconos.ejs
+const icono = (nombre, clase = '') =>
+  `<svg class="icono ${clase}" aria-hidden="true" focusable="false"><use href="#i-${nombre}"/></svg>`;
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '..', 'views'));
-app.locals.ANIMOS = ANIMOS;
+Object.assign(app.locals, { ANIMOS, fecha, icono });
 
 // Cada petición se imprime en la salida estándar -> se ve con `docker logs`.
 app.use(morgan(':date[iso] :method :url :status :response-time ms'));
@@ -62,7 +82,8 @@ if (process.env.APP_PASSWORD) {
 }
 
 // ---------- Utilidades ----------
-const hoy = () => new Date().toISOString().slice(0, 10);
+// 'en-CA' formatea como YYYY-MM-DD, en la zona horaria del usuario
+const hoy = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date());
 
 function validar(body) {
   const datos = {
@@ -117,7 +138,10 @@ app.get('/', ruta(async (req, res) => {
     'SELECT animo, COUNT(*) AS total FROM entradas GROUP BY animo ORDER BY total DESC'
   );
 
-  res.render('index', { entradas, resumen, q, animo });
+  const conteo = Object.fromEntries(resumen.map((r) => [r.animo, Number(r.total)]));
+  const total = Object.values(conteo).reduce((a, b) => a + b, 0);
+
+  res.render('index', { entradas, conteo, total, q, animo });
 }));
 
 app.get('/entradas/nueva', (req, res) => {
