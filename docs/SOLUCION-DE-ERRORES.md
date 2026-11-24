@@ -98,7 +98,7 @@ sudo tail -n 50 /var/log/cloud-init-output.log   # salida del script User data
 |---|---|---|
 | `Connection timed out` | El SG no permite 22 desde tu IP (tu IP cambió, o estás en otra red) | SG `diario-web-sg` → editar la regla SSH → Source **My IP** |
 | `Permission denied (publickey)` | Usuario incorrecto o llave equivocada | Usa `ec2-user@IP` en Amazon Linux o `ubuntu@IP` en Ubuntu, y el `.pem` del key pair que tiene la instancia (ver *Details → Key pair name*) |
-| `UNPROTECTED PRIVATE KEY FILE` / `bad permissions` | El `.pem` tiene permisos abiertos en Windows | `icacls diario-key.pem /inheritance:r /grant:r "$($env:USERNAME):(R)"` |
+| `UNPROTECTED PRIVATE KEY FILE` / `bad permissions` | El `.pem` tiene permisos abiertos en Windows | `icacls "C:\claves-aws\diario-key.pem" /inheritance:r /grant:r "$($env:USERNAME):(R)"` |
 | `Could not resolve hostname` | IP mal copiada | Copia la **Public IPv4** actual desde la consola |
 | Antes funcionaba y ahora no | Detuviste e iniciaste la instancia: **cambió la IP pública** | Usa la nueva IP (o una Elastic IP) |
 

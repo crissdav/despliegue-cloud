@@ -74,7 +74,7 @@ Complétala a medida que avanzas. Muchos pasos necesitan un valor de una fase an
 | Subredes privadas A y B | Fase 1 | |
 | SG web (`sg-…`) | Fase 2 | |
 | SG db (`sg-…`) | Fase 2 | |
-| Ruta del archivo `diario-key.pem` | Fase 4 | |
+| Ruta del archivo `diario-key.pem` | Fase 4 | `C:\claves-aws\diario-key.pem` |
 | Endpoint de RDS | Fase 3 | |
 | Sistema operativo y usuario SSH (`ec2-user` o `ubuntu`) | Fase 4 | |
 | Instance ID (`i-…`) | Fase 4 | |
@@ -136,7 +136,7 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
 - [ ] Revisa **Billing → Free Tier**: confirma qué servicios y horas tienes disponibles.
 - [ ] Anota **tu IP pública**: abre <https://checkip.amazonaws.com> en tu PC.
 - [ ] Define la **contraseña de la BD** (8 o más caracteres, sin `/ " @` ni espacios).
-- [ ] Crea la carpeta para la llave: `C:\Users\<tu-usuario>\.ssh\`.
+- [ ] Crea la carpeta para las llaves: `C:\claves-aws\` (ahí van todas tus llaves de AWS).
 
 **Control de salida:** la región es `us-east-2`, el presupuesto está creado y tu IP está anotada.
 
@@ -268,12 +268,12 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 2. [ ] Nombre: `diario-key` · Tipo: **RSA** · Formato: **.pem** (no `.ppk`, que es para PuTTY) → **Crear par de claves**.
 3. [ ] El navegador descarga `diario-key.pem`, normalmente en **Descargas**.
    > ⚠️ AWS **solo permite descargarlo una vez**. Si se pierde, hay que crear otro par de claves.
-4. [ ] Muévelo a `.ssh` y deja que solo tu usuario pueda leerlo, desde PowerShell:
+4. [ ] Muévelo a `C:\claves-aws\` y deja que solo tu usuario pueda leerlo, desde PowerShell:
    ```powershell
-   New-Item -ItemType Directory -Force "$env:USERPROFILE\.ssh" | Out-Null
-   Move-Item "$env:USERPROFILE\Downloads\diario-key.pem" "$env:USERPROFILE\.ssh\diario-key.pem"
-   icacls "$env:USERPROFILE\.ssh\diario-key.pem" /inheritance:r /grant:r "$($env:USERNAME):(R)"
-   icacls "$env:USERPROFILE\.ssh\diario-key.pem"     # debe mostrar un solo permiso: TU-PC\tu-usuario:(R)
+   New-Item -ItemType Directory -Force "C:\claves-aws" | Out-Null
+   Move-Item "$env:USERPROFILE\Downloads\diario-key.pem" "C:\claves-aws\diario-key.pem"
+   icacls "C:\claves-aws\diario-key.pem" /inheritance:r /grant:r "$($env:USERNAME):(R)"
+   icacls "C:\claves-aws\diario-key.pem"     # debe mostrar un solo permiso: TU-PC\tu-usuario:(R)
    ```
    Si `Move-Item` no encuentra el archivo, búscalo en el Explorador y ajusta la ruta.
    Sin el `icacls`, SSH rechaza la llave con `UNPROTECTED PRIVATE KEY FILE` en la fase 5.
@@ -310,7 +310,7 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 - [ ] Espera **3 a 5 minutos más** antes de la fase 5: el script de *Datos de usuario* sigue instalando Docker aunque la instancia ya aparezca como lista.
 
 **Control de salida:**
-- [ ] El archivo está en `C:\Users\<tu-usuario>\.ssh\diario-key.pem`, con un solo permiso de lectura.
+- [ ] El archivo está en `C:\claves-aws\diario-key.pem`, con un solo permiso de lectura.
 - [ ] *Estado de la instancia*: **En ejecución** · *Comprobación de estado*: **2/2 comprobaciones superadas**.
 - [ ] Pestaña *Detalles*: tiene **Dirección IPv4 pública** y el par de claves es `diario-key`.
 - [ ] Pestaña *Redes*: VPC `diario-vpc` y subred `diario-subnet-public1-us-east-2a`.
@@ -333,9 +333,9 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 - [ ] Desde PowerShell, con el usuario de tu sistema operativo:
   ```powershell
   # Amazon Linux 2023
-  ssh -i "$env:USERPROFILE\.ssh\diario-key.pem" ec2-user@<IP_EC2>
+  ssh -i "C:\claves-aws\diario-key.pem" ec2-user@<IP_EC2>
   # Ubuntu
-  ssh -i "$env:USERPROFILE\.ssh\diario-key.pem" ubuntu@<IP_EC2>
+  ssh -i "C:\claves-aws\diario-key.pem" ubuntu@<IP_EC2>
   ```
   Un usuario equivocado da `Permission denied (publickey)`.
 - [ ] Revisa que el script de *User data* terminó bien:
@@ -519,7 +519,7 @@ Documenta cada una con la [plantilla de incidente](SOLUCION-DE-ERRORES.md#5-plan
 | Tu IP cambia (otra red, reinicio del router) y el SSH deja de funcionar | Media | Bloqueo | Edita la regla SSH → *My IP*. Alternativa: *EC2 Instance Connect* |
 | El EC2 cambia de IP pública al detenerlo | Alta si pausas | Confusión | Anota la IP nueva después de cada *Start* |
 | El build de React se queda sin memoria en el t3.micro | Baja (hay swap) | Retraso | El swap de 1 GB del script. Comprobar con `free -m` en la fase 5 |
-| La llave `.pem` se pierde | Baja | No se puede entrar por SSH | Guárdala en `~\.ssh` y en un respaldo. Alternativa: *EC2 Instance Connect* |
+| La llave `.pem` se pierde | Baja | No se puede entrar por SSH | Guárdala en `C:\claves-aws\` y en un respaldo (USB o nube personal). Alternativa: *EC2 Instance Connect* |
 | Contraseña de la BD en un lugar inseguro | Media | Seguridad | Solo en el `.env` del EC2 (`chmod 600`); nunca en git ni en capturas |
 | El Free Tier no cubre algo en tu tipo de cuenta | Baja | Costo | Revisa *Billing → Free Tier* en la fase 0 |
 

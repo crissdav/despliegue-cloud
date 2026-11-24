@@ -141,7 +141,7 @@ El detalle de cada clic y comando está en **[docs/DESPLIEGUE.md](docs/DESPLIEGU
 
 **En el EC2** (por SSH):
 ```bash
-ssh -i diario-key.pem ec2-user@<IP_PUBLICA_EC2>     # en Ubuntu: ubuntu@<IP_PUBLICA_EC2>
+ssh -i C:\claves-aws\diario-key.pem ec2-user@<IP_PUBLICA_EC2>     # en Ubuntu: ubuntu@<IP_PUBLICA_EC2>
 
 # Probar la conexión con RDS antes de desplegar
 nc -zv <ENDPOINT_RDS> 3306

@@ -208,7 +208,7 @@ instalación crea 1 GB de swap para que ese build no se quede sin memoria.
 
 ### 5.3 Administración
 
-- **SSH:** `ssh -i diario-key.pem ec2-user@<IP pública>`, solo desde la IP autorizada.
+- **SSH:** `ssh -i C:\claves-aws\diario-key.pem ec2-user@<IP pública>`, solo desde la IP autorizada.
 - **Base de datos:** se administra **desde el EC2**, que hace de "puente":
   `mysql -h <endpoint> -u admin -p`. Desde tu PC no hay acceso directo, y eso es intencional.
 

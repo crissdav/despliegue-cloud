@@ -193,7 +193,7 @@ La llave privada (`.pem`) es tu "contraseña" para entrar al servidor. **AWS sol
 ### 🖱️ Consola
 1. **EC2 → Network & Security → Key Pairs → Create key pair**.
 2. Name `diario-key`, type **RSA**, format **.pem**, y luego **Create**. Se descarga `diario-key.pem`.
-3. Muévelo a una carpeta segura, por ejemplo `C:\Users\<tu-usuario>\.ssh\diario-key.pem`.
+3. Muévelo a `C:\claves-aws\diario-key.pem` (carpeta fija para todas tus llaves de AWS).
    **No lo pongas dentro del repo** (igual está en `.gitignore`).
 
 ### ⌨️ CLI
@@ -207,7 +207,7 @@ En CloudShell, descárgalo a tu PC con **Actions → Download file** → `/home/
 ### Permisos del .pem en Windows (obligatorio)
 Si no ajustas los permisos, SSH lo rechaza con `UNPROTECTED PRIVATE KEY FILE`:
 ```powershell
-icacls "$env:USERPROFILE\.ssh\diario-key.pem" /inheritance:r /grant:r "$($env:USERNAME):(R)"
+icacls "C:\claves-aws\diario-key.pem" /inheritance:r /grant:r "$($env:USERNAME):(R)"
 ```
 
 ---
@@ -334,8 +334,8 @@ guardar
 
 Desde **PowerShell en tu PC**:
 ```powershell
-ssh -i "$env:USERPROFILE\.ssh\diario-key.pem" ec2-user@<IP_PUBLICA_EC2>   # Amazon Linux 2023
-ssh -i "$env:USERPROFILE\.ssh\diario-key.pem" ubuntu@<IP_PUBLICA_EC2>     # Ubuntu
+ssh -i "C:\claves-aws\diario-key.pem" ec2-user@<IP_PUBLICA_EC2>   # Amazon Linux 2023
+ssh -i "C:\claves-aws\diario-key.pem" ubuntu@<IP_PUBLICA_EC2>     # Ubuntu
 ```
 - La primera vez pregunta `Are you sure you want to continue connecting?`: responde `yes`.
 - El usuario depende de la AMI: **`ec2-user`** en Amazon Linux y **`ubuntu`** en Ubuntu. Nunca es `root`.
