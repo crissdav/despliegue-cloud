@@ -280,16 +280,47 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 
 #### Paso 2: Lanzar el EC2
 
-- [ ] *Lanzar instancia*: `diario-ec2` · **Amazon Linux 2023 o Ubuntu Server 24.04 LTS** (x86) · **t3.micro** · par de claves **`diario-key`** (el del paso 1).
-- [ ] Red: VPC `diario-vpc` · subred **public1 (us-east-2a)** · *Auto-assign public IP: Enable* · SG `diario-web-sg`.
-- [ ] Disco: 8 GiB gp3. Si quieres más margen para las imágenes Docker, usa hasta 30 GiB, que siguen dentro del Free Tier.
-- [ ] *Advanced details → User data*: pega el contenido de [`scripts/instalar-docker.sh`](../scripts/instalar-docker.sh).
-- [ ] *Launch*.
+- [ ] Comprueba que la región sea **Ohio** (arriba a la derecha).
+- [ ] Consola → **EC2 → Instancias → Lanzar instancias**.
+- [ ] Completa cada sección **en este orden** (el mismo de la consola).
+      ⚠️ = valores que la consola trae mal por defecto y **hay que cambiar**.
+
+| # | Sección de la consola | Campo | Valor |
+|---|---|---|---|
+| 1 | Nombre y etiquetas | Nombre | `diario-ec2` |
+| 2 | Imágenes de aplicaciones y sistemas operativos (AMI) | Inicio rápido | **Amazon Linux** → *Amazon Linux 2023 AMI* (o **Ubuntu** → *Ubuntu Server 24.04 LTS*) · con la etiqueta **Apto para la capa gratuita** |
+| 3 | Imágenes de aplicaciones… | Arquitectura | **64 bits (x86)** |
+| 4 | Tipo de instancia | — | **t3.micro** (*Apto para la capa gratuita*); si no aparece así, `t2.micro` |
+| 5 | Par de claves (inicio de sesión) | Nombre del par de claves | **`diario-key`** (el del paso 1). No elijas *Continuar sin un par de claves* |
+| 6 | Configuraciones de red | — | ⚠️ Pulsa **Editar**: lo que viene por defecto usa la VPC *default* y crea un SG nuevo con SSH abierto a todo internet |
+| 7 | Configuraciones de red | VPC | ⚠️ **`diario-vpc`** |
+| 8 | Configuraciones de red | Subred | ⚠️ **`diario-subnet-public1-us-east-2a`** (la **pública**; nunca una *private*) |
+| 9 | Configuraciones de red | Asignar automáticamente la IP pública | ⚠️ **Habilitar** |
+| 10 | Configuraciones de red | Firewall (grupos de seguridad) | ⚠️ **Seleccionar un grupo de seguridad existente** → **`diario-web-sg`** (no *Crear grupo de seguridad*, que generaría `launch-wizard-1`) |
+| 11 | Configurar almacenamiento | Tamaño · tipo | **20 GiB gp3** (viene en 8; con 20 hay margen para las imágenes Docker y sigue dentro del Free Tier, que cubre 30 GiB) |
+| 12 | Detalles avanzados (plegado, al final) | Especificación de crédito | ⚠️ **Estándar**. En *Ilimitado*, que es lo habitual en t3, AWS puede cobrar si la CPU se usa mucho (por ejemplo, al compilar React) |
+| 13 | Detalles avanzados | **Datos de usuario** (*User data*, el último campo) | ⚠️ Pega **todo** el contenido de [`scripts/instalar-docker.sh`](../scripts/instalar-docker.sh), desde `#!/bin/bash` hasta el final |
+| 14 | Detalles avanzados | Todo lo demás | Dejar por defecto |
+| 15 | Resumen (panel derecho) | Número de instancias | **1** |
+
+- [ ] Revisa en el **Resumen** del panel derecho: AMI correcta · `t3.micro` · grupo de seguridad **`diario-web-sg`** · 20 GiB.
+- [ ] Pulsa **Lanzar instancia** → **Ver todas las instancias**.
+- [ ] Espera a que **Estado de la instancia** = *En ejecución* y **Comprobación de estado** = *2/2 comprobaciones superadas* (2 a 4 minutos).
+- [ ] Copia la **Dirección IPv4 pública** en la hoja de datos.
+- [ ] Espera **3 a 5 minutos más** antes de la fase 5: el script de *Datos de usuario* sigue instalando Docker aunque la instancia ya aparezca como lista.
 
 **Control de salida:**
 - [ ] El archivo está en `C:\Users\<tu-usuario>\.ssh\diario-key.pem`, con un solo permiso de lectura.
-- [ ] *Instance state*: **Running** · *Status checks*: **2/2 passed** (2 a 4 minutos).
-- [ ] Tiene **Public IPv4**, está en la subred pública y usa el par de claves `diario-key`. Anota la IP.
+- [ ] *Estado de la instancia*: **En ejecución** · *Comprobación de estado*: **2/2 comprobaciones superadas**.
+- [ ] Pestaña *Detalles*: tiene **Dirección IPv4 pública** y el par de claves es `diario-key`.
+- [ ] Pestaña *Redes*: VPC `diario-vpc` y subred `diario-subnet-public1-us-east-2a`.
+- [ ] Pestaña *Seguridad*: grupo de seguridad **`diario-web-sg`** (no `launch-wizard-…`).
+
+**Si falla:**
+- **Sin IP pública:** se lanzó sin *Asignar automáticamente la IP pública*. Termínala y lánzala de nuevo con *Habilitar*.
+- **Quedó con `launch-wizard-1`:** *Acciones → Seguridad → Cambiar grupos de seguridad* → quita `launch-wizard-1` y agrega `diario-web-sg`. Después borra `launch-wizard-1`.
+- **Quedó en la VPC o subred equivocada:** no se puede cambiar. Termínala y lánzala de nuevo.
+- **Olvidaste los Datos de usuario:** no pasa nada. En la fase 5 se ejecuta el script a mano.
 
 **Evidencias:** captura de la lista de *Pares de claves* y de *Detalles* y *Redes* de la instancia. No captures el contenido del `.pem`.
 
