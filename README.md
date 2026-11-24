@@ -24,6 +24,8 @@ Proyecto de práctica para:
 Definición completa: **[docs/ARQUITECTURA.md](docs/ARQUITECTURA.md)** (componentes, plan de IPs, seguridad,
 flujos, decisiones, limitaciones y costos).
 
+![Infraestructura en AWS](docs/img/infraestructura-aws.jpg)
+
 ```
                  Usuario (HTTP :80)        Administrador (SSH :22, solo su IP)
                           \                    /
@@ -83,6 +85,7 @@ docker-compose.local.yml pruebas en tu PC (agrega un MySQL local que simula RDS)
 scripts/instalar-docker.sh  prepara el EC2 (Docker, Compose, Git, cliente MySQL)
 docs/LOCAL.md               guía para levantarlo en tu PC con Docker
 docs/ARQUITECTURA.md        definición de la arquitectura (diagramas, red, seguridad, decisiones)
+docs/PLAN-DESPLIEGUE.md     plan: fases, orden, tiempos, controles, evidencias y riesgos
 docs/DESPLIEGUE.md          guía paso a paso: consola de AWS + comandos CLI
 docs/SOLUCION-DE-ERRORES.md diagnóstico, fallas típicas y laboratorio de fallas
 ```
@@ -122,7 +125,8 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml down
 
 ## Desplegar en AWS
 
-Sigue **[docs/DESPLIEGUE.md](docs/DESPLIEGUE.md)**. En resumen:
+Empieza por el **[plan de despliegue](docs/PLAN-DESPLIEGUE.md)**, que da el orden, los tiempos y los controles de cada fase.
+El detalle de cada paso está en **[docs/DESPLIEGUE.md](docs/DESPLIEGUE.md)**. En resumen:
 1. Crear la red: VPC `10.0.0.0/16`, 2 subredes públicas, 2 privadas, Internet Gateway y tablas de rutas.
 2. Crear los Security Groups `diario-web-sg` y `diario-db-sg`.
 3. Crear el key pair, el EC2 (en la subred pública) y RDS (en las subredes privadas, con un DB subnet group).
