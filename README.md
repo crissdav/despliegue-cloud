@@ -161,9 +161,56 @@ curl -s localhost/api/health          # "db":"ok"
 
 Abre **`http://<IP_PUBLICA_EC2>`** en el navegador (con `http`, no `https`).
 
-**Actualizar después de un `git push`:**
+---
+
+## Operar la app en producción (EC2)
+
+Todos los comandos se ejecutan **dentro de `~/despliegue-cloud`** (`cd ~/despliegue-cloud`).
+Desde otra carpeta, Docker responde `no configuration file provided: not found`.
+
+### Detener, arrancar y reiniciar
+
+| Quiero… | Comando | ¿Se pierden datos? |
+|---|---|---|
+| Ver el estado | `docker compose ps` | — |
+| **Detener** la app (los contenedores quedan creados) | `docker compose stop` | No |
+| **Volver a arrancarla** | `docker compose start` | No |
+| **Reiniciarla** (por ejemplo, tras un cuelgue) | `docker compose restart` | No |
+| Reiniciar solo la API | `docker compose restart api` | No |
+| **Bajarla por completo** (borra los contenedores y la red de Docker; quedan las imágenes) | `docker compose down` | No: las entradas están en **RDS** |
+| Volver a levantarla después de un `down` | `docker compose up -d` | No |
+
+> **"Killed" no es un comando.** Es un error que puede aparecer durante `docker compose up --build` cuando el EC2 se queda
+> sin memoria al compilar React. Se previene con el swap de 1 GB del script de instalación (compruébalo con `free -m`).
+> Para "matar" o detener la app se usa `docker compose stop` o `docker compose down`.
+
+### Bajar cambios de GitHub y redesplegar
+
+Después de hacer `git push` desde tu PC:
+```bash
+cd ~/despliegue-cloud
+git pull                          # baja los cambios del repositorio
+docker compose up -d --build      # reconstruye las imágenes que cambiaron y recrea los contenedores
+docker compose ps                 # ambos deben quedar "Up (healthy)"
+docker image prune -f             # borra las imágenes viejas para no llenar el disco
+```
+En una sola línea:
 ```bash
 cd ~/despliegue-cloud && git pull && docker compose up -d --build && docker image prune -f
+```
+
+| Situación | Qué hacer |
+|---|---|
+| Cambiaste solo el `.env` (no hay `git pull`) | `docker compose up -d --force-recreate api` (`restart` no vuelve a leer el `.env`) |
+| `git pull` dice *"Your local changes would be overwritten"* | Editaste archivos en el EC2. Para descartarlos: `git checkout -- .` y repite `git pull` (el `.env` no se toca porque no está en git) |
+| El despliegue nuevo falla y quieres volver a la versión anterior | `git log --oneline -5` → `git checkout <commit-anterior>` → `docker compose up -d --build`. Para volver a la última: `git checkout main && git pull` |
+
+### Ver logs
+
+```bash
+docker compose logs -f            # los dos contenedores, en vivo (Ctrl+C para salir)
+docker compose logs -f api        # solo la API
+docker compose logs --tail 50 web # últimas 50 líneas de Nginx
 ```
 
 ---
