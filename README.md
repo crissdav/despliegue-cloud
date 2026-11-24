@@ -56,7 +56,7 @@ No se usa un registro de imágenes como ECR.
 - El archivo **`.env`** (credenciales de RDS) solo existe en el EC2, con `chmod 600`. **Nunca se sube a git.**
 - **`restart: unless-stopped`** y Docker habilitado en systemd: los contenedores vuelven solos tras una caída o un reinicio.
 - Ambos contenedores tienen **healthcheck** (`docker compose ps` muestra `healthy`) y logs con rotación (10 MB × 3).
-- El script de *User data* ([scripts/instalar-docker.sh](scripts/instalar-docker.sh)) prepara el EC2: Docker, Compose, Buildx, Git, cliente MySQL y **1 GB de swap**, para que la compilación de React no se quede sin memoria en el t3.micro.
+- El script de *User data* ([scripts/instalar-docker.sh](scripts/instalar-docker.sh)) funciona en **Amazon Linux 2023 y Ubuntu 22.04/24.04** y prepara el EC2: Docker, Compose, Buildx, Git, cliente MySQL y **1 GB de swap**, para que la compilación de React no se quede sin memoria en el t3.micro.
 
 ---
 
@@ -137,11 +137,11 @@ El detalle de cada clic y comando está en **[docs/DESPLIEGUE.md](docs/DESPLIEGU
 2. **Security Groups:** `diario-web-sg` (22 desde tu IP, 80 desde todos) y `diario-db-sg` (3306 solo desde `diario-web-sg`).
 3. **Key pair** `diario-key` (`.pem`).
 4. **RDS:** subnet group con las subredes privadas → MySQL `db.t3.micro`, **Public access: No**, SG `diario-db-sg`, base `diario`.
-5. **EC2:** Amazon Linux 2023 `t3.micro` en la subred pública, SG `diario-web-sg`, y en *User data* el contenido de `scripts/instalar-docker.sh`.
+5. **EC2:** Amazon Linux 2023 **o** Ubuntu Server 24.04 · `t3.micro` en la subred pública, SG `diario-web-sg`, y en *User data* el contenido de `scripts/instalar-docker.sh`, que detecta el sistema.
 
 **En el EC2** (por SSH):
 ```bash
-ssh -i diario-key.pem ec2-user@<IP_PUBLICA_EC2>
+ssh -i diario-key.pem ec2-user@<IP_PUBLICA_EC2>     # en Ubuntu: ubuntu@<IP_PUBLICA_EC2>
 
 # Probar la conexión con RDS antes de desplegar
 nc -zv <ENDPOINT_RDS> 3306

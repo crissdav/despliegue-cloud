@@ -85,7 +85,7 @@ sudo tail -n 50 /var/log/cloud-init-output.log   # salida del script User data
 |---|---|---|
 | La instancia no tiene *Public IPv4 address* | Se lanzó sin *Auto-assign public IP*, o en una subred privada | Si está en la subred pública: asóciale una Elastic IP. Si está en una privada: termínala y lánzala en la pública |
 | SSH y HTTP dan *timed out*, y los SG están bien | La tabla de rutas de la subred del EC2 **no tiene** `0.0.0.0/0 → igw` (o el IGW no está *Attached*) | VPC → Route tables → la pública → *Edit routes* → agrega `0.0.0.0/0` → Internet Gateway. Revisa *Subnet associations* |
-| `dnf install` o `git clone` se quedan colgados dentro del EC2 | Misma causa: el EC2 no tiene salida a internet | Igual que la anterior |
+| `dnf install` / `apt-get install` o `git clone` se quedan colgados dentro del EC2 | Misma causa: el EC2 no tiene salida a internet | Igual que la anterior |
 | RDS: `DB subnet group doesn't meet Availability Zone coverage requirement` | El subnet group tiene subredes en una sola AZ | Agrega subredes de **2 AZ distintas** (privada A y B) |
 | RDS: `The DB subnet group and the security group are in different VPCs` | `diario-db-sg` se creó en la VPC default | Crea el SG en `diario-vpc` |
 | No aparece `diario-web-sg` al lanzar el EC2 | Elegiste otra VPC en *Network settings* | Selecciona `diario-vpc`: los SG solo se ven dentro de su VPC |
@@ -97,7 +97,7 @@ sudo tail -n 50 /var/log/cloud-init-output.log   # salida del script User data
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | `Connection timed out` | El SG no permite 22 desde tu IP (tu IP cambió, o estás en otra red) | SG `diario-web-sg` → editar la regla SSH → Source **My IP** |
-| `Permission denied (publickey)` | Usuario incorrecto o llave equivocada | Usa `ec2-user@IP` y el `.pem` del key pair que tiene la instancia (ver *Details → Key pair name*) |
+| `Permission denied (publickey)` | Usuario incorrecto o llave equivocada | Usa `ec2-user@IP` en Amazon Linux o `ubuntu@IP` en Ubuntu, y el `.pem` del key pair que tiene la instancia (ver *Details → Key pair name*) |
 | `UNPROTECTED PRIVATE KEY FILE` / `bad permissions` | El `.pem` tiene permisos abiertos en Windows | `icacls diario-key.pem /inheritance:r /grant:r "$($env:USERNAME):(R)"` |
 | `Could not resolve hostname` | IP mal copiada | Copia la **Public IPv4** actual desde la consola |
 | Antes funcionaba y ahora no | Detuviste e iniciaste la instancia: **cambió la IP pública** | Usa la nueva IP (o una Elastic IP) |
@@ -141,7 +141,7 @@ sudo tail -n 50 /var/log/cloud-init-output.log   # salida del script User data
 
 | Síntoma | Causa | Solución |
 |---|---|---|
-| `permission denied ... /var/run/docker.sock` | Tu usuario aún no está en el grupo `docker` | `sudo usermod -aG docker ec2-user`, luego `exit` y vuelve a entrar por SSH |
+| `permission denied ... /var/run/docker.sock` | Tu usuario aún no está en el grupo `docker` | `sudo usermod -aG docker $USER` (`ec2-user` o `ubuntu`), luego `exit` y vuelve a entrar por SSH |
 | `Cannot connect to the Docker daemon` | El servicio Docker está detenido | `sudo systemctl enable --now docker` |
 | `docker: 'compose' is not a docker command` | No se instaló el plugin de Compose | `sudo bash scripts/instalar-docker.sh` |
 | `compose build requires buildx` | Falta el plugin buildx | Lo instala el mismo script |

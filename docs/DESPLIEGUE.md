@@ -217,7 +217,9 @@ icacls "$env:USERPROFILE\.ssh\diario-key.pem" /inheritance:r /grant:r "$($env:US
 ### 🖱️ Consola
 1. **EC2 → Instances → Launch instances**.
 2. Name: `diario-ec2`.
-3. AMI: **Amazon Linux 2023** (*Free tier eligible*), arquitectura **64-bit (x86)**.
+3. AMI, arquitectura **64-bit (x86)** y *Free tier eligible*. Cualquiera de las dos sirve, porque el script de instalación detecta el sistema:
+   - **Amazon Linux 2023** (recomendado) → usuario SSH **`ec2-user`**.
+   - **Ubuntu Server 24.04 LTS** → usuario SSH **`ubuntu`**.
 4. Instance type: **t3.micro**, o **t2.micro** si en tu región esa aparece como *Free tier eligible*.
 5. Key pair: `diario-key`.
 6. Network settings → **Edit**:
@@ -238,6 +240,7 @@ git clone https://github.com/<tu-usuario>/despliegue-cloud.git && cd despliegue-
 
 INSTANCE_ID=$(aws ec2 run-instances \
   --image-id resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 \
+  `# Para Ubuntu 24.04 usa: resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id` \
   --instance-type t3.micro \
   --key-name diario-key \
   --subnet-id "$PUB_A" \
@@ -331,10 +334,12 @@ guardar
 
 Desde **PowerShell en tu PC**:
 ```powershell
-ssh -i "$env:USERPROFILE\.ssh\diario-key.pem" ec2-user@<IP_PUBLICA_EC2>
+ssh -i "$env:USERPROFILE\.ssh\diario-key.pem" ec2-user@<IP_PUBLICA_EC2>   # Amazon Linux 2023
+ssh -i "$env:USERPROFILE\.ssh\diario-key.pem" ubuntu@<IP_PUBLICA_EC2>     # Ubuntu
 ```
 - La primera vez pregunta `Are you sure you want to continue connecting?`: responde `yes`.
-- El usuario de Amazon Linux es **`ec2-user`**, no `root` ni `ubuntu`.
+- El usuario depende de la AMI: **`ec2-user`** en Amazon Linux y **`ubuntu`** en Ubuntu. Nunca es `root`.
+  Con el usuario equivocado, SSH responde `Permission denied (publickey)`.
 - **Alternativa sin llave:** EC2 → selecciona la instancia → **Connect → EC2 Instance Connect**.
   Para esto, el SG debe permitir el puerto 22 desde el rango de IPs de AWS de tu región, o temporalmente desde `0.0.0.0/0`.
 
@@ -345,7 +350,8 @@ ssh -i "$env:USERPROFILE\.ssh\diario-key.pem" ec2-user@<IP_PUBLICA_EC2>
 Si pegaste el script en *User data* (paso 4.8), ya está instalado. Verifícalo con `docker --version`.
 Si no, ejecuta dentro del EC2:
 ```bash
-sudo dnf install -y git
+sudo dnf install -y git                              # Amazon Linux 2023
+# sudo apt-get update && sudo apt-get install -y git # Ubuntu
 git clone https://github.com/<tu-usuario>/despliegue-cloud.git
 cd despliegue-cloud
 sudo bash scripts/instalar-docker.sh

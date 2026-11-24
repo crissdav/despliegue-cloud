@@ -27,7 +27,7 @@
 | `diario-web-sg` | 22 ← tu IP · 80 ← `0.0.0.0/0` | 2 |
 | `diario-db-sg` | 3306 ← `diario-web-sg` | 2 |
 | RDS `diario-db` | MySQL 8, db.t3.micro, 20 GiB, **Public access: No** | 3 |
-| EC2 `diario-ec2` | t3.micro, Amazon Linux 2023, subred pública A, *User data* = `instalar-docker.sh` | 4 |
+| EC2 `diario-ec2` | t3.micro, Amazon Linux 2023 o Ubuntu 24.04, subred pública A, *User data* = `instalar-docker.sh` | 4 |
 
 ### Docker dentro del EC2
 
@@ -76,6 +76,7 @@ Complétala a medida que avanzas. Muchos pasos necesitan un valor de una fase an
 | SG db (`sg-…`) | Fase 2 | |
 | Ruta del archivo `diario-key.pem` | Fase 4 | |
 | Endpoint de RDS | Fase 3 | |
+| Sistema operativo y usuario SSH (`ec2-user` o `ubuntu`) | Fase 4 | |
 | Instance ID (`i-…`) | Fase 4 | |
 | IP pública del EC2 | Fase 4 | |
 
@@ -245,7 +246,19 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
 
 ### Fase 4: Par de claves y servidor EC2 (15 min) · [guía §3 y §4](DESPLIEGUE.md#3-par-de-llaves-ssh)
 
-**Objetivo:** crear la llave SSH y lanzar la instancia Amazon Linux 2023 en la subred pública, con Docker ya instalado por *User data*.
+**Objetivo:** crear la llave SSH y lanzar la instancia (Amazon Linux 2023 o Ubuntu) en la subred pública, con Docker ya instalado por *User data*.
+
+**Sistema operativo:** puedes usar cualquiera de los dos. El script `instalar-docker.sh` detecta el sistema y funciona en ambos.
+Lo que cambia es **el usuario SSH**: anótalo en la hoja de datos, porque lo usarás desde la fase 5.
+
+| | Amazon Linux 2023 (recomendado) | Ubuntu Server 24.04 LTS |
+|---|---|---|
+| AMI en el asistente | *Amazon Linux 2023 AMI* · 64 bits (x86) | *Ubuntu Server 24.04 LTS (HVM), SSD Volume Type* · 64 bits (x86) |
+| Free Tier | Sí | Sí |
+| **Usuario SSH** | **`ec2-user`** | **`ubuntu`** |
+| Gestor de paquetes | `dnf` | `apt` |
+| Docker Compose y Buildx | El script los descarga de GitHub | Vienen en los repositorios (`docker-compose-v2`, `docker-buildx`) |
+| Por qué elegirlo | Optimizado para AWS, arranca rápido, consume menos | Si ya conoces Ubuntu/Debian y sus comandos |
 
 #### Paso 1: Par de claves SSH
 
@@ -267,7 +280,7 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 
 #### Paso 2: Lanzar el EC2
 
-- [ ] *Lanzar instancia*: `diario-ec2` · Amazon Linux 2023 (x86) · **t3.micro** · par de claves **`diario-key`** (el del paso 1).
+- [ ] *Lanzar instancia*: `diario-ec2` · **Amazon Linux 2023 o Ubuntu Server 24.04 LTS** (x86) · **t3.micro** · par de claves **`diario-key`** (el del paso 1).
 - [ ] Red: VPC `diario-vpc` · subred **public1 (us-east-2a)** · *Auto-assign public IP: Enable* · SG `diario-web-sg`.
 - [ ] Disco: 8 GiB gp3. Si quieres más margen para las imágenes Docker, usa hasta 30 GiB, que siguen dentro del Free Tier.
 - [ ] *Advanced details → User data*: pega el contenido de [`scripts/instalar-docker.sh`](../scripts/instalar-docker.sh).
@@ -286,10 +299,14 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 
 **Objetivo:** entrar por SSH y confirmar que Docker, Compose, Git y el swap están listos.
 
-- [ ] Desde PowerShell:
+- [ ] Desde PowerShell, con el usuario de tu sistema operativo:
   ```powershell
+  # Amazon Linux 2023
   ssh -i "$env:USERPROFILE\.ssh\diario-key.pem" ec2-user@<IP_EC2>
+  # Ubuntu
+  ssh -i "$env:USERPROFILE\.ssh\diario-key.pem" ubuntu@<IP_EC2>
   ```
+  Un usuario equivocado da `Permission denied (publickey)`.
 - [ ] Revisa que el script de *User data* terminó bien:
   ```bash
   sudo tail -n 15 /var/log/cloud-init-output.log   # debe terminar en ">> Listo:" con las versiones
@@ -305,8 +322,14 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 
 **Control de salida:** los cuatro comandos responden sin errores y `docker` funciona **sin `sudo`**.
 
-**Si falla:** si no se instaló nada (falló el *User data*), ejecuta a mano
-`sudo dnf install -y git && git clone https://github.com/crissdav/despliegue-cloud.git && sudo bash despliegue-cloud/scripts/instalar-docker.sh`.
+**Si falla:** si no se instaló nada (falló el *User data* o lo olvidaste), instala `git` y ejecuta el script a mano:
+```bash
+sudo dnf install -y git        # Amazon Linux 2023
+sudo apt-get install -y git    # Ubuntu (antes: sudo apt-get update)
+git clone https://github.com/crissdav/despliegue-cloud.git
+sudo bash despliegue-cloud/scripts/instalar-docker.sh
+exit                           # y vuelve a entrar por SSH
+```
 
 **Evidencias:** captura de la terminal con las versiones y `hello-world`.
 
