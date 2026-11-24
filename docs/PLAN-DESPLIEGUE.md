@@ -192,37 +192,52 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
       *Restaurar desde S3* es para importar un respaldo existente.
 - [ ] En la página siguiente, **Elegir un método de creación de base de datos** → deja marcada **Configuración completa**,
       no *Creación sencilla*, que tiene el mismo problema que la exprés.
-- [ ] Baja por la página y completa cada sección en este orden:
+- [ ] Baja por la página y completa cada sección **en este orden** (el mismo de la consola).
+      ⚠️ = valores que la consola trae mal por defecto y **hay que cambiar**.
 
-| Sección de la consola | Valor |
-|---|---|
-| Elegir un método de creación de base de datos | **Configuración completa** |
-| Opciones del motor | **MySQL** (versión por defecto) |
-| Plantillas | **Capa gratuita** (o *Sandbox*) |
-| Identificador de la instancia de base de datos | `diario-db` |
-| Nombre de usuario maestro | `admin` |
-| Administración de credenciales | **Autoadministrado** → tu contraseña (fase 0) |
-| Clase de instancia | `db.t3.micro` (o `db.t4g.micro`) |
-| Almacenamiento | 20 GiB · **desmarca** *escalado automático del almacenamiento* |
-| Recurso de computación | **No se conecte a un recurso informático EC2** (los SG ya están hechos a mano) |
-| Nube privada virtual (VPC) | `diario-vpc` |
-| Grupo de subredes de base de datos | `diario-db-subnets` |
-| **Acceso público** | **No** |
-| Grupo de seguridad de VPC | **Elegir existente** → quita `default`, deja **solo** `diario-db-sg` |
-| Zona de disponibilidad | `us-east-2a` |
-| Configuración adicional (al final, plegada) → Nombre de base de datos inicial | `diario` |
-| Copia de seguridad | retención de 1 día |
-| Monitorización mejorada | desactivada |
+| # | Sección de la consola | Campo | Valor |
+|---|---|---|---|
+| 1 | Elegir un método de creación | — | **Configuración completa** |
+| 2 | Opciones del motor | Tipo de motor | **MySQL** |
+| 3 | Plantillas | — | **Capa gratuita** (Producción y Desarrollo aparecen desactivadas) |
+| 4 | Disponibilidad y durabilidad | Opciones de implementación | **Instancia de base de datos de zona de disponibilidad única (1 instancia)** |
+| 5 | Configuración | Edición · Versión del motor | Comunidad de MySQL · **MySQL 8.4.x** (la que viene por defecto) |
+| 6 | Configuración | Activar el soporte extendido de RDS | **Desmarcado** (es de pago) |
+| 7 | Configuración | Identificador de instancias de bases de datos | `diario-db` |
+| 8 | Configuración de credenciales | Nombre de usuario maestro | `admin` |
+| 9 | Configuración de credenciales | Administración de credenciales | **Autoadministrado** · *Generar contraseña automáticamente* desmarcado · tu contraseña (fase 0) dos veces |
+| 10 | Opciones de autenticación | — | **Autenticación con contraseña** |
+| 11 | Configuración de la instancia | Clase / tipo de instancia | **Clases ampliables (incluye clases t)** → `db.t3.micro` (o `db.t4g.micro`) |
+| 12 | Almacenamiento | Tipo · Almacenamiento asignado | **SSD de uso general (gp2)** · `20` GiB |
+| 13 | Almacenamiento → *Configuración de almacenamiento adicional* (plegada) | Escalado automático | ⚠️ Ábrela y **desmarca** *Habilitar el escalado automático del almacenamiento* |
+| 14 | Conectividad | Recurso de computación | **No se conecte a un recurso informático EC2** (los SG ya están hechos a mano) |
+| 15 | Conectividad | Nube privada virtual (VPC) | ⚠️ Viene en *Default VPC* → cámbiala a **`diario-vpc`**. Si no aparece, pulsa **↻**: solo se listan las VPC que tienen un grupo de subredes de BD |
+| 16 | Conectividad | Grupo de subredes de la base de datos | ⚠️ Viene en *predeterminado* → **`diario-db-subnets`** |
+| 17 | Conectividad | **Acceso público** | **No** |
+| 18 | Conectividad | Grupo de seguridad de VPC (firewall) | **Elegir existente** · ⚠️ quita `default` con la ✕ y deja **solo `diario-db-sg`** |
+| 19 | Conectividad | Zona de disponibilidad | ⚠️ Viene en *Sin preferencia* → `us-east-2a` (la misma que el EC2) |
+| 20 | Conectividad | Proxy de RDS | **Desmarcado** (tiene costo) |
+| 21 | Conectividad | Entidad de certificación | La predeterminada (`rds-ca-rsa2048-g1`) |
+| 22 | Reservas de capacidad · Etiquetas | — | Dejar vacío |
+| 23 | Supervisión | — | **Database Insights: estándar** (gratis) |
+| 24 | Supervisión → Ajustes de monitorización adicional | Monitorización mejorada · Exportaciones de registros | **Todo desmarcado** (CloudWatch puede tener costo) |
+| 25 | **Configuración adicional** (plegada, al final) | Nombre de base de datos inicial | ⚠️ Ábrela y escribe **`diario`** |
+| 26 | Configuración adicional | Copia de seguridad | Retención **1 día** |
+| 27 | Configuración adicional | Protección contra eliminación | **Desactivada** (para poder borrarla en la fase 10) |
 
-- [ ] Antes de crear, revisa el cuadro **Costos mensuales estimados** al final de la página: con la plantilla *Capa gratuita* debe indicar que estás dentro del Free Tier.
+- [ ] Antes de crear, **revisa otra vez los ⚠️** (VPC, grupo de subredes y SG): la VPC **no se puede cambiar** una vez creada la base.
+- [ ] Revisa el cuadro **Costos mensuales estimados** al final de la página: con la plantilla *Capa gratuita* debe indicar que estás dentro del Free Tier.
 - [ ] Pulsa **Crear base de datos** y **continúa con la fase 4** sin esperar.
 
 **Control de salida** (compruébalo al empezar la fase 6):
 - [ ] Estado **Available**.
-- [ ] *Connectivity & security*: **Publicly accessible: No**, VPC `diario-vpc`, SG `diario-db-sg`.
+- [ ] Pestaña *Conectividad y seguridad*: **Accesible públicamente: No** · VPC `diario-vpc` · grupo de subredes `diario-db-subnets` · SG **solo** `diario-db-sg`.
+- [ ] Pestaña *Configuración*: nombre de la base de datos `diario`.
+
+**Si quedó en la VPC equivocada** (por ejemplo, *Default VPC*): la VPC no se puede cambiar. Borra la base (sin instantánea final) y créala de nuevo.
 - [ ] Endpoint copiado en la hoja de datos.
 
-**Evidencias:** captura de *Connectivity & security*.
+**Evidencias:** captura de la pestaña *Conectividad y seguridad* de `diario-db`.
 
 **Si falla:** un error de *AZ coverage* significa que el subnet group necesita 2 AZ. Un error de *different VPCs* significa que el SG está en otra VPC.
 
