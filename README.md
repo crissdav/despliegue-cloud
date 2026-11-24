@@ -26,6 +26,10 @@ flujos, decisiones, limitaciones y costos).
 
 ![Infraestructura en AWS](docs/img/infraestructura-aws.jpg)
 
+Detalle de Docker dentro del EC2 (imágenes, contenedores, red interna y puertos):
+
+![Docker en el EC2](docs/img/docker-en-ec2.jpg)
+
 ```
                  Usuario (HTTP :80)        Administrador (SSH :22, solo su IP)
                           \                    /
