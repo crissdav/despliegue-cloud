@@ -1,0 +1,42 @@
+<%- include('partials/cabecera', { tituloPagina: titulo }) %>
+
+<h1><%= titulo %></h1>
+
+<% if (errores.length) { %>
+  <div class="alerta">
+    <ul><% errores.forEach((e) => { %><li><%= e %></li><% }) %></ul>
+  </div>
+<% } %>
+
+<form class="formulario" method="post" action="<%= accion %>">
+  <label>Fecha
+    <input type="date" name="fecha" value="<%= entrada.fecha %>" required>
+  </label>
+
+  <label>Título
+    <input type="text" name="titulo" value="<%= entrada.titulo %>" maxlength="150" required>
+  </label>
+
+  <fieldset>
+    <legend>¿Cómo te sentiste?</legend>
+    <div class="animos">
+      <% Object.entries(ANIMOS).forEach(([clave, texto]) => { %>
+        <label class="opcion">
+          <input type="radio" name="animo" value="<%= clave %>" <%= entrada.animo === clave ? 'checked' : '' %>>
+          <span><%= texto %></span>
+        </label>
+      <% }) %>
+    </div>
+  </fieldset>
+
+  <label>¿Qué pasó hoy?
+    <textarea name="contenido" rows="10" required><%= entrada.contenido %></textarea>
+  </label>
+
+  <div class="acciones">
+    <button type="submit">Guardar</button>
+    <a href="<%= entrada.id ? '/entradas/' + entrada.id : '/' %>">Cancelar</a>
+  </div>
+</form>
+
+<%- include('partials/pie') %>

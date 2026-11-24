@@ -1,0 +1,10 @@
+<%- include('partials/cabecera', { tituloPagina: titulo }) %>
+
+<div class="alerta">
+  <h1><%= titulo %></h1>
+  <p><%= mensaje %></p>
+  <% if (detalle) { %><pre><%= detalle %></pre><% } %>
+</div>
+<p><a href="/">← Volver al inicio</a> · <a href="/health">Ver /health</a></p>
+
+<%- include('partials/pie') %>

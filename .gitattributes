@@ -1,0 +1,6 @@
+# Los scripts de Linux deben tener saltos de línea LF (si no: "bad interpreter: /bin/bash^M")
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.yml  text eol=lf
+Dockerfile text eol=lf
+.env.example text eol=lf

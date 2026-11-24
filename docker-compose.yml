@@ -1,0 +1,15 @@
+# Producción (EC2): solo la app. La base de datos es RDS, configurada en .env
+services:
+  app:
+    build: ./app
+    image: diario-personal:latest
+    container_name: diario-app
+    env_file: .env
+    ports:
+      - "80:3000"          # puerto 80 del EC2 -> puerto 3000 del contenedor
+    restart: unless-stopped # se levanta solo si se cae o si se reinicia el EC2
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"     # evita que los logs llenen el disco del EC2
+        max-file: "3"

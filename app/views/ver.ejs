@@ -1,0 +1,22 @@
+<%- include('partials/cabecera', { tituloPagina: entrada.titulo }) %>
+
+<article class="entrada animo-<%= entrada.animo %>">
+  <div class="meta">
+    <time datetime="<%= entrada.fecha %>"><%= entrada.fecha %></time>
+    <span><%= ANIMOS[entrada.animo] %></span>
+  </div>
+  <h1><%= entrada.titulo %></h1>
+  <div class="contenido"><%= entrada.contenido %></div>
+  <p class="nota">Creada: <%= entrada.creado_en %> · Última edición: <%= entrada.actualizado_en %></p>
+</article>
+
+<div class="acciones">
+  <a class="boton" href="/entradas/<%= entrada.id %>/editar">Editar</a>
+  <form method="post" action="/entradas/<%= entrada.id %>/eliminar"
+        onsubmit="return confirm('¿Eliminar esta entrada? No se puede deshacer.')">
+    <button type="submit" class="peligro">Eliminar</button>
+  </form>
+  <a href="/">← Volver</a>
+</div>
+
+<%- include('partials/pie') %>

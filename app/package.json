@@ -1,0 +1,20 @@
+{
+  "name": "diario-personal",
+  "version": "1.0.0",
+  "description": "Diario personal (Node.js + Express + MySQL en RDS) para practicar despliegue en AWS EC2",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "morgan": "^1.10.0",
+    "mysql2": "^3.11.5"
+  }
+}
