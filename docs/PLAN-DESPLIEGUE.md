@@ -65,6 +65,10 @@ Solo se usa `docker-compose.yml`. El archivo `docker-compose.local.yml` es exclu
 Complétala a medida que avanzas. Muchos pasos necesitan un valor de una fase anterior.
 **No subas esta hoja con contraseñas a git.** Cópiala a un archivo fuera del repo o a papel.
 
+> **Marcadores en los comandos:** `<IP_EC2>`, `<ENDPOINT_RDS>`, etc. indican dónde va un valor de esta hoja.
+> Se reemplazan **completos, sin los signos `< >`**.
+> Por ejemplo, `ubuntu@<IP_EC2>` se escribe `ubuntu@3.144.28.205`.
+
 | Dato | Se obtiene en | Valor |
 |---|---|---|
 | Tu IP pública (`x.x.x.x/32`) | Fase 0 | |
@@ -341,20 +345,45 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
   ssh -i "C:\claves-aws\diario-key.pem" ubuntu@<IP_EC2>
   ```
   Un usuario equivocado da `Permission denied (publickey)`.
-- [ ] Revisa que el script de *User data* terminó bien:
+  ⚠️ `<IP_EC2>` es un marcador: **reemplázalo completo, sin los signos `< >`**.
+  Ejemplo: `ssh -i "C:\claves-aws\diario-key.pem" ubuntu@3.144.28.205`.
+  Si escribes los signos, SSH responde `hostname contains invalid characters`.
+  La primera conexión pregunta `Are you sure you want to continue connecting?`: responde `yes`.
+- [ ] Revisa que el script de *User data* **terminó**. Puede seguir ejecutándose varios minutos después de que la instancia aparezca *En ejecución*:
   ```bash
-  sudo tail -n 15 /var/log/cloud-init-output.log   # debe terminar en ">> Listo:" con las versiones
+  cloud-init status --long                          # "status: done" = terminó · "running" = espera y repite
+  sudo tail -n 8 /var/log/cloud-init-output.log     # debe terminar en ">> Listo:" con las versiones
   ```
-- [ ] Sal (`exit`) y **vuelve a entrar**, para que tu usuario tenga permiso de usar Docker.
+  Si el log termina en mensajes de `apt` como *"No VM guests are running outdated hypervisor…"* y todavía no aparece `>> Listo:`,
+  el script **sigue corriendo**: espera 1 o 2 minutos. Si `cloud-init status` dice `error`, revisa con
+  `sudo grep -n -E ">>|rror" /var/log/cloud-init-output.log | tail -20`.
+- [ ] **Sal (`exit`) y vuelve a entrar por SSH.** Es obligatorio: el script agregó tu usuario al grupo `docker`,
+      pero la sesión que ya estaba abierta no ve ese cambio.
 - [ ] Comprueba:
   ```bash
+  groups                             # debe incluir "docker"
   docker --version && docker compose version && git --version
   docker run --rm hello-world        # "Hello from Docker!"
   free -m                            # la fila Swap debe mostrar ~1023
   systemctl is-enabled docker        # enabled
   ```
 
-**Control de salida:** los cuatro comandos responden sin errores y `docker` funciona **sin `sudo`**.
+**Resultado esperado** (Ubuntu 24.04, comprobado en el despliegue real):
+```
+Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2
+Docker Compose version 2.40.3+ds1-0ubuntu1~24.04.1
+git version 2.43.0
+Hello from Docker!
+Swap:  1023   0   1023
+enabled
+```
+(En Amazon Linux 2023 las versiones son otras, por ejemplo Docker 25.x y Compose v5.x).
+
+**Si `docker run` da `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`:**
+no saliste y volviste a entrar después de que terminó el script. Ejecuta `exit`, conéctate otra vez y comprueba que `groups` incluya `docker`.
+No lo resuelvas con `sudo docker`: el despliegue debe funcionar sin `sudo`.
+
+**Control de salida:** los comandos responden sin errores, `groups` incluye `docker` y `docker` funciona **sin `sudo`**.
 
 **Si falla:** si no se instaló nada (falló el *User data* o lo olvidaste), instala `git` y ejecuta el script a mano:
 ```bash
@@ -373,21 +402,68 @@ exit                           # y vuelve a entrar por SSH
 
 **Objetivo:** demostrar que la red y las credenciales funcionan **antes** de desplegar el código. Es el control más importante.
 
+**1. Copia el endpoint de RDS** (es un **nombre**, no una IP):
+- [ ] Consola → **Aurora and RDS → Bases de datos → `diario-db`** → estado **Disponible**.
+- [ ] Pestaña **Conectividad y seguridad** → **Punto de conexión** → cópialo. Se ve así:
+      `diario-db.xxxxxxxxxxxx.us-east-2.rds.amazonaws.com`. Anótalo en la hoja de datos: en la fase 7 va en `DB_HOST`.
+
+> **Usuario y contraseña de MySQL:**
+> - **Usuario:** `admin`, el *Nombre de usuario maestro* de la fase 3.
+>   **No** es `diario-db`: ese es el *identificador de la instancia* y aparece en el endpoint, no es un usuario.
+> - **Contraseña:** la *contraseña maestra* de la fase 3. Guárdala en tu gestor de contraseñas y **nunca** la pegues en capturas, chats ni en git.
+>   Si se expuso, cámbiala en *RDS → diario-db → Modificar → Nueva contraseña maestra* y actualiza el `.env`.
+>
+> En la consola, *Conectividad y seguridad → Conectarse con…* muestra un comando `mysql` con `--ssl-mode=VERIFY_IDENTITY`.
+> Es la versión **con cifrado TLS** de la prueba 3: es opcional y está en el paso 4. Primero haz las tres pruebas básicas.
+
+**2. Ejecuta las pruebas en el EC2.** Guarda el endpoint en una variable para no repetirlo:
 ```bash
-getent hosts <ENDPOINT_RDS>                 # 1. DNS: debe devolver 10.0.128.x–10.0.143.x (IP privada)
-nc -zv <ENDPOINT_RDS> 3306                  # 2. Red/SG: "Connected to 10.0.x.x:3306" (IP privada)
-mysql -h <ENDPOINT_RDS> -u admin -p -e "SELECT VERSION(); SHOW DATABASES;"   # 3. Credenciales
+cd ~
+RDS=diario-db.xxxxxxxxxxxx.us-east-2.rds.amazonaws.com    # ← pega TU endpoint (sin < >)
+
+getent hosts $RDS                       # 1. DNS
+nc -zv $RDS 3306                        # 2. Red / Security Group
+mysql -h $RDS -u admin -p -e "SELECT VERSION(); SHOW DATABASES;"   # 3. Credenciales (pide la contraseña; no se ve al escribir)
 ```
+
+> No escribas las IP privadas: son lo que **devuelven** los comandos, y prueban que la base está en la red privada.
+
+**3. Resultado esperado:**
+
+| # | Salida correcta |
+|---|---|
+| 1 | `10.0.13x.x   diario-db.xxxx.us-east-2.rds.amazonaws.com`: una IP **privada** entre `10.0.128.x` y `10.0.143.x` (subred privada A) |
+| 2 | Ubuntu: `Connection to diario-db… 3306 port [tcp/mysql] succeeded!` · Amazon Linux: `Connected to 10.0.x.x:3306` |
+| 3 | Una tabla con la versión `8.4.x` y la lista de bases, que incluye **`diario`** |
 
 **Control de salida:** las tres pruebas pasan y `SHOW DATABASES` lista `diario`.
 
 | Si falla… | Significa | Revisa |
 |---|---|---|
-| 1 no devuelve nada | DNS de la VPC o endpoint mal copiado | DNS hostnames/resolution en la VPC · endpoint |
+| 1 no devuelve nada | DNS de la VPC, endpoint mal copiado o la base aún no está *Disponible* | DNS hostnames/resolution en la VPC · endpoint · estado de `diario-db` |
 | 2 se queda colgado | Algo bloquea la red | Regla 3306 de `diario-db-sg` con origen `diario-web-sg` |
 | 3 `Access denied` | Usuario o contraseña | Usuario `admin` y la contraseña de la fase 0 |
+| 3 `Unknown database` o `diario` no aparece en la lista | Faltó el *Nombre de base de datos inicial* (fila 25 de la fase 3) | No es grave: la API crea la base `diario` sola al arrancar (fase 7) |
 
-**Evidencias:** captura de las tres pruebas. La IP `10.0.x.x` demuestra que la BD está en la red privada.
+**4. (Opcional) Prueba con cifrado TLS**, la que propone la consola de AWS. Es un buen extra de seguridad para el informe:
+```bash
+cd ~
+curl -sS -o global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+ls -l global-bundle.pem                 # debe existir y pesar ~170 KB
+
+mysql -h $RDS -P 3306 -u admin -p --ssl-mode=VERIFY_IDENTITY --ssl-ca=$HOME/global-bundle.pem \
+  -e "SHOW STATUS LIKE 'Ssl_cipher';"   # un valor como TLS_AES_... = conexión cifrada
+```
+| Error | Causa | Solución |
+|---|---|---|
+| `ERROR 2026 (HY000): SSL connection error: SSL_CTX_set_default_verify_paths failed` | No existe `global-bundle.pem` en la ruta indicada (falta el `curl`, o lo descargaste en otra carpeta) | Ejecuta el `curl` y usa la ruta completa: `--ssl-ca=$HOME/global-bundle.pem` |
+| `ERROR 2026 ... certificate verify failed` | El certificado no coincide con el endpoint | Usa el endpoint exacto de la consola (no una IP) |
+
+En la app, esto equivale a `DB_SSL=true` en el `.env`: la API usa los mismos certificados de Amazon RDS.
+En esta práctica basta con `DB_SSL=false`, porque el tráfico no sale de la VPC privada.
+
+**Evidencias:** captura de las tres pruebas, y de la prueba TLS si la hiciste. La IP `10.0.x.x` demuestra que la BD está en la red privada.
+**No muestres la contraseña** en las capturas: `-p` la pide sin mostrarla.
 
 ---
 
@@ -395,10 +471,35 @@ mysql -h <ENDPOINT_RDS> -u admin -p -e "SELECT VERSION(); SHOW DATABASES;"   # 3
 
 **Objetivo:** levantar `diario-web` y `diario-api` conectados a RDS.
 
+**Carpeta de trabajo:** la app se levanta desde **`/home/ubuntu/despliegue-cloud`** (`~/despliegue-cloud`).
+En Amazon Linux es `/home/ec2-user/despliegue-cloud`. La crea el `git clone`.
+
+```
+/home/ubuntu/despliegue-cloud/
+├── docker-compose.yml     ← docker compose lo busca en la carpeta actual
+├── .env                   ← lo creas tú aquí (DB_HOST, DB_PASSWORD) · chmod 600 · nunca en git
+├── api/                   ← código y Dockerfile de la API
+├── web/                   ← código, nginx.conf y Dockerfile del frontend
+└── db/  scripts/  docs/
+```
+(`global-bundle.pem` de la fase 6 queda en `/home/ubuntu`, fuera del repo.)
+
+| Qué | Dónde queda |
+|---|---|
+| Código fuente y `.env` | `/home/ubuntu/despliegue-cloud` |
+| Imágenes y contenedores | Los administra Docker en `/var/lib/docker` (no se tocan a mano) |
+| Archivos de React | `/usr/share/nginx/html`, **dentro** del contenedor `diario-web` |
+| Código de la API | `/app`, **dentro** del contenedor `diario-api` |
+| Entradas del diario (datos) | En **RDS**, fuera del EC2 |
+
+> ⚠️ **Todos** los `docker compose …` (`up`, `ps`, `logs`, `restart`, `down`) se ejecutan **dentro de `~/despliegue-cloud`**.
+> Desde otra carpeta aparece `no configuration file provided: not found`. Para volver: `cd ~/despliegue-cloud`.
+
 ```bash
 cd ~
 git clone https://github.com/crissdav/despliegue-cloud.git    # si no existe ya
-cd despliegue-cloud
+cd ~/despliegue-cloud
+pwd                           # /home/ubuntu/despliegue-cloud
 git log --oneline -1          # confirma que es el último commit que subiste
 
 cp .env.example .env

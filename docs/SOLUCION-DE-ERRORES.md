@@ -141,7 +141,8 @@ sudo tail -n 50 /var/log/cloud-init-output.log   # salida del script User data
 
 | Síntoma | Causa | Solución |
 |---|---|---|
-| `permission denied ... /var/run/docker.sock` | Tu usuario aún no está en el grupo `docker` | `sudo usermod -aG docker $USER` (`ec2-user` o `ubuntu`), luego `exit` y vuelve a entrar por SSH |
+| `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock` | La sesión SSH se abrió **antes** de que el script agregara tu usuario al grupo `docker` (lo más común), o el usuario no está en el grupo | `exit` y vuelve a entrar por SSH; comprueba con `groups`. Si `docker` no aparece: `sudo usermod -aG docker $USER` (`ubuntu` o `ec2-user`) y vuelve a entrar |
+| `cloud-init status` dice `running` y el log no muestra `>> Listo:` | El script de *User data* sigue instalando | Espera 1 o 2 minutos y repite `cloud-init status --long` |
 | `Cannot connect to the Docker daemon` | El servicio Docker está detenido | `sudo systemctl enable --now docker` |
 | `docker: 'compose' is not a docker command` | No se instaló el plugin de Compose | `sudo bash scripts/instalar-docker.sh` |
 | `compose build requires buildx` | Falta el plugin buildx | Lo instala el mismo script |
@@ -152,6 +153,7 @@ sudo tail -n 50 /var/log/cloud-init-output.log   # salida del script User data
 | `no space left on device` | El disco de 8 GB está lleno (imágenes viejas) | `docker system prune -af` y `df -h` |
 | `bad interpreter: /bin/bash^M` | El script tiene saltos de línea de Windows (CRLF) | `sed -i 's/\r$//' scripts/instalar-docker.sh` |
 | `env file .env not found` | No creaste el `.env` | `cp .env.example .env && nano .env` |
+| `no configuration file provided: not found` | Ejecutaste `docker compose` fuera de la carpeta del proyecto | `cd ~/despliegue-cloud` y repite el comando |
 
 ### RDS
 
