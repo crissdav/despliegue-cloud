@@ -1,4 +1,6 @@
-# Guía de despliegue en AWS (EC2 + Docker + RDS MySQL)
+# Guía de despliegue en AWS (VPC propia + EC2 + Docker + RDS MySQL)
+
+Implementa la arquitectura definida en [ARQUITECTURA.md](ARQUITECTURA.md).
 
 Cada paso tiene dos caminos:
 - **🖱️ Consola**: haces clic en la web de AWS (recomendado para aprender y tomar capturas).
@@ -10,17 +12,18 @@ Cada paso tiene dos caminos:
 
 ## Índice
 0. [Antes de empezar](#0-antes-de-empezar)
-1. [Security Groups](#1-security-groups-firewalls)
-2. [Par de llaves SSH](#2-par-de-llaves-ssh)
-3. [Instancia EC2](#3-instancia-ec2)
-4. [Base de datos RDS MySQL](#4-base-de-datos-rds-mysql)
-5. [Conectarse por SSH](#5-conectarse-al-ec2-por-ssh)
-6. [Instalar Docker en el EC2](#6-instalar-docker-en-el-ec2)
-7. [Probar la conexión EC2 → RDS](#7-probar-la-conexión-ec2--rds)
-8. [Desplegar la aplicación](#8-desplegar-la-aplicación)
-9. [Verificar desde el navegador](#9-verificar-desde-el-navegador)
-10. [Actualizar la app](#10-actualizar-la-app-después-de-cambios)
-11. [Apagar y borrar todo (costos)](#11-apagar-o-borrar-todo-costos)
+1. [Red: VPC, subredes, Internet Gateway y rutas](#1-red-vpc-subredes-internet-gateway-y-rutas)
+2. [Security Groups](#2-security-groups-firewalls)
+3. [Par de llaves SSH](#3-par-de-llaves-ssh)
+4. [Instancia EC2](#4-instancia-ec2)
+5. [Base de datos RDS MySQL](#5-base-de-datos-rds-mysql)
+6. [Conectarse por SSH](#6-conectarse-al-ec2-por-ssh)
+7. [Instalar Docker en el EC2](#7-instalar-docker-en-el-ec2)
+8. [Probar la conexión EC2 → RDS](#8-probar-la-conexión-ec2--rds)
+9. [Desplegar la aplicación](#9-desplegar-la-aplicación)
+10. [Verificar desde el navegador](#10-verificar-desde-el-navegador)
+11. [Actualizar la app](#11-actualizar-la-app-después-de-cambios)
+12. [Apagar y borrar todo (costos)](#12-apagar-o-borrar-todo-costos)
 
 ---
 
@@ -44,11 +47,106 @@ Cada paso tiene dos caminos:
 3. Define una **contraseña para la base de datos**, de 8 caracteres o más y sin `/`, `"`, `@` ni espacios.
    Ejemplo: `DiarioSeguro2026`.
 
+4. **(Solo CLI)** CloudShell borra las variables si la sesión se cierra por inactividad. Después de cada
+   paso, guarda los IDs creados:
+   ```bash
+   guardar() { set | grep -E '^(VPC_ID|AZ_A|AZ_B|PUB_A|PUB_B|PRIV_A|PRIV_B|IGW_ID|RT_PUB|RT_PRIV|SG_WEB|SG_DB|INSTANCE_ID|EC2_IP|DB_HOST)=' > ~/diario-ids.env; echo "IDs guardados"; }
+   # Para recuperarlos en una sesión nueva:   source ~/diario-ids.env
+   ```
+   (Si abres una sesión nueva, vuelve a pegar también la línea de `guardar`).
+
 ---
 
-## 1. Security Groups (firewalls)
+## 1. Red: VPC, subredes, Internet Gateway y rutas
 
-Necesitamos dos firewalls:
+Lo que vamos a construir (ver [ARQUITECTURA.md §3](ARQUITECTURA.md#3-plan-de-direcciones-ip)):
+
+| Recurso | Valor |
+|---|---|
+| VPC | `10.0.0.0/16` |
+| Subredes públicas | `10.0.1.0/24` (us-east-1a), `10.0.2.0/24` (us-east-1b) |
+| Subredes privadas | `10.0.11.0/24` (us-east-1a), `10.0.12.0/24` (us-east-1b) |
+| Internet Gateway | conectado a la VPC |
+| Rutas públicas | `0.0.0.0/0 → Internet Gateway` |
+| Rutas privadas | solo `local` (sin internet) |
+| NAT Gateway | **ninguno**: cuesta dinero y RDS no lo necesita |
+
+### 🖱️ Consola: asistente "VPC and more"
+1. **VPC → Your VPCs → Create VPC**.
+2. Resources to create: **VPC and more**.
+3. Name tag auto-generation: ✅ `diario`.
+4. IPv4 CIDR block: `10.0.0.0/16` · IPv6: **No IPv6 CIDR block** · Tenancy: Default.
+5. Number of Availability Zones: **2**.
+6. Number of public subnets: **2** · Number of private subnets: **2**.
+7. **Customize subnets CIDR blocks**:
+   - Public subnet CIDR block in us-east-1a: `10.0.1.0/24`
+   - Public subnet CIDR block in us-east-1b: `10.0.2.0/24`
+   - Private subnet CIDR block in us-east-1a: `10.0.11.0/24`
+   - Private subnet CIDR block in us-east-1b: `10.0.12.0/24`
+8. NAT gateways: **None** ← importante, para que no haya costo.
+9. VPC endpoints: **None**.
+10. DNS options: ✅ Enable DNS hostnames · ✅ Enable DNS resolution.
+11. **Create VPC**. La vista previa muestra lo que se crea: la VPC, 4 subredes, el IGW y las tablas de rutas.
+12. Activa la IP pública automática en las subredes públicas:
+    **VPC → Subnets** → selecciona `diario-subnet-public1-us-east-1a` → **Actions → Edit subnet settings**
+    → ✅ *Enable auto-assign public IPv4 address* → Save. Repite con `public2`.
+
+> El asistente pone nombres como `diario-vpc`, `diario-subnet-public1-us-east-1a`, `diario-igw` y
+> `diario-rtb-public`. Abre **Route tables** y confirma que la pública tiene `0.0.0.0/0 → igw-...`
+> y que las privadas solo tienen `10.0.0.0/16 → local`.
+
+### ⌨️ CLI: paso a paso (así se ve cada pieza por separado)
+```bash
+# 1) VPC
+VPC_ID=$(aws ec2 create-vpc --cidr-block 10.0.0.0/16 \
+  --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=diario-vpc}]' \
+  --query Vpc.VpcId --output text)
+aws ec2 modify-vpc-attribute --vpc-id "$VPC_ID" --enable-dns-support '{"Value":true}'
+aws ec2 modify-vpc-attribute --vpc-id "$VPC_ID" --enable-dns-hostnames '{"Value":true}'
+
+# 2) Subredes en dos zonas de disponibilidad
+AZ_A=$(aws ec2 describe-availability-zones --query 'AvailabilityZones[0].ZoneName' --output text)
+AZ_B=$(aws ec2 describe-availability-zones --query 'AvailabilityZones[1].ZoneName' --output text)
+crear_subred() {  # uso: crear_subred <cidr> <zona> <nombre>
+  aws ec2 create-subnet --vpc-id "$VPC_ID" --cidr-block "$1" --availability-zone "$2" \
+    --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=$3}]" \
+    --query Subnet.SubnetId --output text
+}
+PUB_A=$(crear_subred 10.0.1.0/24  "$AZ_A" diario-public-a)
+PUB_B=$(crear_subred 10.0.2.0/24  "$AZ_B" diario-public-b)
+PRIV_A=$(crear_subred 10.0.11.0/24 "$AZ_A" diario-private-a)
+PRIV_B=$(crear_subred 10.0.12.0/24 "$AZ_B" diario-private-b)
+aws ec2 modify-subnet-attribute --subnet-id "$PUB_A" --map-public-ip-on-launch
+aws ec2 modify-subnet-attribute --subnet-id "$PUB_B" --map-public-ip-on-launch
+
+# 3) Internet Gateway
+IGW_ID=$(aws ec2 create-internet-gateway \
+  --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value=diario-igw}]' \
+  --query InternetGateway.InternetGatewayId --output text)
+aws ec2 attach-internet-gateway --internet-gateway-id "$IGW_ID" --vpc-id "$VPC_ID"
+
+# 4) Tabla de rutas PÚBLICA: 0.0.0.0/0 -> IGW
+RT_PUB=$(aws ec2 create-route-table --vpc-id "$VPC_ID" \
+  --tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=diario-rt-public}]' \
+  --query RouteTable.RouteTableId --output text)
+aws ec2 create-route --route-table-id "$RT_PUB" --destination-cidr-block 0.0.0.0/0 --gateway-id "$IGW_ID"
+aws ec2 associate-route-table --route-table-id "$RT_PUB" --subnet-id "$PUB_A"
+aws ec2 associate-route-table --route-table-id "$RT_PUB" --subnet-id "$PUB_B"
+
+# 5) Tabla de rutas PRIVADA: solo "local" (no se agrega ninguna ruta)
+RT_PRIV=$(aws ec2 create-route-table --vpc-id "$VPC_ID" \
+  --tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=diario-rt-private}]' \
+  --query RouteTable.RouteTableId --output text)
+aws ec2 associate-route-table --route-table-id "$RT_PRIV" --subnet-id "$PRIV_A"
+aws ec2 associate-route-table --route-table-id "$RT_PRIV" --subnet-id "$PRIV_B"
+
+echo "VPC=$VPC_ID PUB_A=$PUB_A PRIV_A=$PRIV_A PRIV_B=$PRIV_B IGW=$IGW_ID"
+guardar
+```
+
+---
+
+## 2. Security Groups (firewalls)
 
 | Nombre | Se asigna a | Regla de entrada | Origen | Para qué |
 |---|---|---|---|---|
@@ -56,24 +154,22 @@ Necesitamos dos firewalls:
 | `diario-web-sg` | EC2 | HTTP, TCP 80 | `0.0.0.0/0` | Que cualquiera abra la web |
 | `diario-db-sg` | RDS | MySQL/Aurora, TCP 3306 | **`diario-web-sg`** (el SG, no una IP) | Solo el EC2 llega a la BD |
 
-> En el SG de RDS se pone como origen **otro Security Group**: cualquier instancia que tenga
-> `diario-web-sg` puede entrar, aunque cambie su IP. Nunca abras 3306 a `0.0.0.0/0`.
+> Los SG pertenecen a una VPC: **créalos en `diario-vpc`**, no en la default.
 > No se permite que el nombre de un SG empiece con `sg-`.
 
 ### 🖱️ Consola
 1. **EC2 → Network & Security → Security Groups → Create security group**.
-2. Name: `diario-web-sg`; Description: `Web y SSH del diario`; VPC: la *default*.
+2. Name: `diario-web-sg`; Description: `Web y SSH del diario`; VPC: **`diario-vpc`**.
 3. **Inbound rules → Add rule**:
    - Type **SSH**, Source **My IP**.
    - Type **HTTP**, Source **Anywhere-IPv4** (`0.0.0.0/0`).
-4. Outbound: déjalo como está (todo permitido) → **Create security group**.
-5. Crea otro: `diario-db-sg`, Description `MySQL solo desde la web`, misma VPC.
+4. Outbound: déjalo como está → **Create security group**.
+5. Crea otro: `diario-db-sg`, Description `MySQL solo desde la web`, VPC **`diario-vpc`**.
    - Inbound: Type **MySQL/Aurora** (3306), Source **Custom** → escribe `diario-web-sg` y elígelo de la lista.
 
 ### ⌨️ CLI
 ```bash
 MI_IP="190.12.34.56/32"   # <-- pon TU IP de checkip.amazonaws.com
-VPC_ID=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
 
 SG_WEB=$(aws ec2 create-security-group --group-name diario-web-sg \
   --description "Web y SSH del diario" --vpc-id "$VPC_ID" --query GroupId --output text)
@@ -85,11 +181,12 @@ SG_DB=$(aws ec2 create-security-group --group-name diario-db-sg \
 aws ec2 authorize-security-group-ingress --group-id "$SG_DB" --protocol tcp --port 3306 --source-group "$SG_WEB"
 
 echo "SG_WEB=$SG_WEB  SG_DB=$SG_DB"
+guardar
 ```
 
 ---
 
-## 2. Par de llaves SSH
+## 3. Par de llaves SSH
 
 La llave privada (`.pem`) es tu "contraseña" para entrar al servidor. **AWS solo te la da una vez.**
 
@@ -102,10 +199,10 @@ La llave privada (`.pem`) es tu "contraseña" para entrar al servidor. **AWS sol
 ### ⌨️ CLI
 ```bash
 aws ec2 create-key-pair --key-name diario-key --key-type rsa \
-  --query KeyMaterial --output text > diario-key.pem
-chmod 400 diario-key.pem
+  --query KeyMaterial --output text > ~/diario-key.pem
+chmod 400 ~/diario-key.pem
 ```
-En CloudShell, descárgalo a tu PC con **Actions → Download file** → `diario-key.pem`.
+En CloudShell, descárgalo a tu PC con **Actions → Download file** → `/home/cloudshell-user/diario-key.pem`.
 
 ### Permisos del .pem en Windows (obligatorio)
 Si no ajustas los permisos, SSH lo rechaza con `UNPROTECTED PRIVATE KEY FILE`:
@@ -115,7 +212,7 @@ icacls "$env:USERPROFILE\.ssh\diario-key.pem" /inheritance:r /grant:r "$($env:US
 
 ---
 
-## 3. Instancia EC2
+## 4. Instancia EC2
 
 ### 🖱️ Consola
 1. **EC2 → Instances → Launch instances**.
@@ -124,10 +221,12 @@ icacls "$env:USERPROFILE\.ssh\diario-key.pem" /inheritance:r /grant:r "$($env:US
 4. Instance type: **t3.micro**, o **t2.micro** si en tu región esa aparece como *Free tier eligible*.
 5. Key pair: `diario-key`.
 6. Network settings → **Edit**:
-   - VPC default, Subnet *No preference*, **Auto-assign public IP: Enable**.
+   - VPC: **`diario-vpc`**.
+   - Subnet: **`diario-subnet-public1-us-east-1a`**, la **pública** A. ⚠️ No elijas una privada.
+   - **Auto-assign public IP: Enable**.
    - Firewall: **Select existing security group** → `diario-web-sg`.
 7. Storage: 8 GiB gp3 (lo que viene por defecto).
-8. *(Opcional, pero ahorra el paso 6)* **Advanced details → User data**: pega el contenido de
+8. *(Opcional, pero ahorra el paso 7)* **Advanced details → User data**: pega el contenido de
    [`scripts/instalar-docker.sh`](../scripts/instalar-docker.sh).
 9. **Launch instance**. Cuando **Instance state** sea *Running* y **Status check** diga *2/2 checks passed*,
    copia la **Public IPv4 address**.
@@ -141,6 +240,7 @@ INSTANCE_ID=$(aws ec2 run-instances \
   --image-id resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 \
   --instance-type t3.micro \
   --key-name diario-key \
+  --subnet-id "$PUB_A" \
   --security-group-ids "$SG_WEB" \
   --associate-public-ip-address \
   --user-data file://scripts/instalar-docker.sh \
@@ -151,6 +251,7 @@ aws ec2 wait instance-status-ok --instance-ids "$INSTANCE_ID"   # tarda 2-3 min
 EC2_IP=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
   --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
 echo "IP pública del EC2: $EC2_IP"
+guardar
 ```
 
 > ⚠️ La IP pública **cambia** si detienes (*Stop*) y vuelves a iniciar la instancia. Si quieres
@@ -158,9 +259,19 @@ echo "IP pública del EC2: $EC2_IP"
 
 ---
 
-## 4. Base de datos RDS MySQL
+## 5. Base de datos RDS MySQL
+
+Primero se crea un **DB subnet group**: le dice a RDS en qué subredes puede vivir. Usaremos las dos
+**privadas**; RDS exige que estén en al menos 2 zonas distintas.
 
 ### 🖱️ Consola
+**5.1 Subnet group**
+1. **RDS → Subnet groups → Create DB subnet group**.
+2. Name: `diario-db-subnets` · Description: `Subredes privadas del diario` · VPC: **`diario-vpc`**.
+3. Availability Zones: `us-east-1a` y `us-east-1b`.
+4. Subnets: elige **solo las privadas**, `10.0.11.0/24` y `10.0.12.0/24` → **Create**.
+
+**5.2 Base de datos**
 1. **RDS → Databases → Create database**.
 2. Creation method: **Standard create** · Engine: **MySQL** (la versión por defecto).
 3. Templates: **Free tier** (o *Sandbox*, según cómo lo muestre tu cuenta).
@@ -171,9 +282,10 @@ echo "IP pública del EC2: $EC2_IP"
 5. Instance: **db.t3.micro** o **db.t4g.micro**. Storage: 20 GiB gp2/gp3. Desactiva *Storage autoscaling*.
 6. Connectivity:
    - **Don't connect to an EC2 compute resource** (lo hacemos a mano con los SG, para aprender).
-   - VPC: default · DB subnet group: default.
-   - **Public access: No** ← importante.
+   - VPC: **`diario-vpc`** · DB subnet group: **`diario-db-subnets`**.
+   - **Public access: No**.
    - VPC security group: **Choose existing** → quita `default` y elige `diario-db-sg`.
+   - Availability Zone: `us-east-1a` (la misma del EC2, para menor latencia).
    - Database port: 3306.
 7. **Additional configuration → Initial database name**: `diario`. La app también la crea si falta.
 8. Backup: retención de 1 día · desactiva *Enhanced monitoring* (puede tener costo).
@@ -183,6 +295,11 @@ echo "IP pública del EC2: $EC2_IP"
 
 ### ⌨️ CLI
 ```bash
+aws rds create-db-subnet-group \
+  --db-subnet-group-name diario-db-subnets \
+  --db-subnet-group-description "Subredes privadas del diario" \
+  --subnet-ids "$PRIV_A" "$PRIV_B"
+
 DB_PASSWORD='DiarioSeguro2026'   # <-- tu contraseña
 
 aws rds create-db-instance \
@@ -193,7 +310,9 @@ aws rds create-db-instance \
   --master-username admin \
   --master-user-password "$DB_PASSWORD" \
   --db-name diario \
+  --db-subnet-group-name diario-db-subnets \
   --vpc-security-group-ids "$SG_DB" \
+  --availability-zone "$AZ_A" \
   --no-publicly-accessible \
   --no-multi-az \
   --backup-retention-period 1
@@ -202,12 +321,13 @@ aws rds wait db-instance-available --db-instance-identifier diario-db   # 5-10 m
 DB_HOST=$(aws rds describe-db-instances --db-instance-identifier diario-db \
   --query 'DBInstances[0].Endpoint.Address' --output text)
 echo "Endpoint RDS: $DB_HOST"
+guardar
 ```
 > Si aparece un error de *free tier* por la retención de backups, usa `--backup-retention-period 0`.
 
 ---
 
-## 5. Conectarse al EC2 por SSH
+## 6. Conectarse al EC2 por SSH
 
 Desde **PowerShell en tu PC**:
 ```powershell
@@ -220,9 +340,9 @@ ssh -i "$env:USERPROFILE\.ssh\diario-key.pem" ec2-user@<IP_PUBLICA_EC2>
 
 ---
 
-## 6. Instalar Docker en el EC2
+## 7. Instalar Docker en el EC2
 
-Si pegaste el script en *User data* (paso 3.8), ya está instalado. Verifícalo con `docker --version`.
+Si pegaste el script en *User data* (paso 4.8), ya está instalado. Verifícalo con `docker --version`.
 Si no, ejecuta dentro del EC2:
 ```bash
 sudo dnf install -y git
@@ -237,21 +357,27 @@ docker --version && docker compose version
 systemctl status docker --no-pager     # debe decir "active (running)"
 docker run --rm hello-world            # debe imprimir "Hello from Docker!"
 ```
+> Si `dnf` o `git clone` se quedan colgados, el EC2 no tiene salida a internet: revisa que esté en
+> la subred **pública** y que su tabla de rutas tenga `0.0.0.0/0 → igw`.
 
 ---
 
-## 7. Probar la conexión EC2 → RDS
+## 8. Probar la conexión EC2 → RDS
 
 **Antes** de levantar la app, comprueba que la red está bien. Así, si algo falla, sabrás que no es culpa del código:
 ```bash
+# ¿Resuelve el endpoint? Debe devolver una IP privada 10.0.11.x o 10.0.12.x
+getent hosts <ENDPOINT_RDS>
+
 # ¿Llega el EC2 al puerto 3306 del RDS? (prueba el Security Group)
 nc -zv <ENDPOINT_RDS> 3306
-#   OK:    "Connected to 172.31.x.x:3306"
-#   MAL:   se queda colgado / "timed out"  -> revisa diario-db-sg (paso 1)
+#   OK:    "Connected to 10.0.11.x:3306"
+#   MAL:   se queda colgado / "timed out"  -> revisa diario-db-sg (paso 2)
 
 # ¿Funcionan usuario y contraseña? (prueba las credenciales)
 mysql -h <ENDPOINT_RDS> -u admin -p -e "SELECT VERSION(); SHOW DATABASES;"
 ```
+Que el endpoint resuelva a una IP **10.0.x.x** demuestra que la base está en la red privada.
 
 Opcional: carga el esquema y los datos de ejemplo:
 ```bash
@@ -260,7 +386,7 @@ mysql -h <ENDPOINT_RDS> -u admin -p < ~/despliegue-cloud/db/init.sql
 
 ---
 
-## 8. Desplegar la aplicación
+## 9. Desplegar la aplicación
 
 ```bash
 cd ~
@@ -283,7 +409,7 @@ curl -s localhost/health          # {"app":"ok", ... "db":"ok" ...}
 
 ---
 
-## 9. Verificar desde el navegador
+## 10. Verificar desde el navegador
 
 Abre **`http://<IP_PUBLICA_EC2>`**: con `http`, **no** `https`, porque no configuramos un certificado.
 
@@ -291,13 +417,18 @@ Abre **`http://<IP_PUBLICA_EC2>`**: con `http`, **no** `https`, porque no config
 - Abre `http://<IP_PUBLICA_EC2>/health`: debe mostrar `"db":"ok"` y la versión de MySQL de RDS.
 - Pruébalo también desde el celular, con datos móviles.
 
-**Capturas sugeridas para tu entrega:** reglas de entrada de los dos SG, la instancia *Running* con
-2/2 checks, RDS *Available* con *Public access: No*, la terminal SSH con `docker compose ps`,
-la app en el navegador y la respuesta de `/health`.
+**Capturas sugeridas para tu entrega:**
+- *Resource map* de la VPC (VPC → tu VPC → pestaña **Resource map**), que muestra subredes, rutas e IGW.
+- Tablas de rutas pública y privada.
+- Reglas de entrada de los dos SG.
+- La instancia *Running* con 2/2 checks, dentro de la subred pública.
+- RDS *Available*, con *Public access: No* y el subnet group de subredes privadas.
+- La terminal SSH con `getent hosts` (IP 10.0.x.x), `nc -zv` y `docker compose ps`.
+- La app en el navegador y la respuesta de `/health`.
 
 ---
 
-## 10. Actualizar la app después de cambios
+## 11. Actualizar la app después de cambios
 
 En tu PC: `git commit` y `git push`. Luego, en el EC2:
 ```bash
@@ -309,28 +440,42 @@ docker image prune -f      # borra imágenes viejas para no llenar el disco
 
 ---
 
-## 11. Apagar o borrar todo (costos)
+## 12. Apagar o borrar todo (costos)
 
 El Free Tier tiene límites: 750 horas al mes de EC2 y 750 de RDS. Todo lo que pase de eso se cobra.
 Además, **las IPv4 públicas se cobran por hora**.
 Revisa **Billing → Free Tier** y crea una alerta en **Billing → Budgets** (por ejemplo, de USD 1).
+La VPC, las subredes, el IGW, las rutas y los SG **no tienen costo**.
 
 **Pausar** (conserva los datos):
 - EC2: *Instance state → Stop*. El disco EBS sigue cobrándose, aunque poco.
 - RDS: *Actions → Stop temporarily*. AWS la **vuelve a encender sola a los 7 días**.
 
-**Borrar** al terminar la práctica:
+**Borrar** al terminar la práctica, en este orden:
 
-🖱️ Consola: RDS → `diario-db` → *Actions → Delete* (desmarca *final snapshot*) → EC2 → *Terminate*
-→ cuando ambas desaparezcan, borra los SG `diario-db-sg` y luego `diario-web-sg` → borra el Key Pair.
+🖱️ Consola:
+1. RDS → `diario-db` → *Actions → Delete* (desmarca *final snapshot*).
+2. EC2 → `diario-ec2` → *Terminate*.
+3. Cuando ambas desaparezcan: RDS → Subnet groups → borra `diario-db-subnets`.
+4. VPC → Your VPCs → `diario-vpc` → *Actions → Delete VPC*. Esto borra también las subredes, el IGW, las rutas y los SG.
+5. EC2 → Key Pairs → borra `diario-key`.
 
 ⌨️ CLI:
 ```bash
+source ~/diario-ids.env
 aws rds delete-db-instance --db-instance-identifier diario-db --skip-final-snapshot --delete-automated-backups
 aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
 aws rds wait db-instance-deleted --db-instance-identifier diario-db
 aws ec2 wait instance-terminated --instance-ids "$INSTANCE_ID"
+
+aws rds delete-db-subnet-group --db-subnet-group-name diario-db-subnets
 aws ec2 delete-security-group --group-id "$SG_DB"
 aws ec2 delete-security-group --group-id "$SG_WEB"
+for s in "$PUB_A" "$PUB_B" "$PRIV_A" "$PRIV_B"; do aws ec2 delete-subnet --subnet-id "$s"; done
+aws ec2 delete-route-table --route-table-id "$RT_PUB"
+aws ec2 delete-route-table --route-table-id "$RT_PRIV"
+aws ec2 detach-internet-gateway --internet-gateway-id "$IGW_ID" --vpc-id "$VPC_ID"
+aws ec2 delete-internet-gateway --internet-gateway-id "$IGW_ID"
+aws ec2 delete-vpc --vpc-id "$VPC_ID"
 aws ec2 delete-key-pair --key-name diario-key
 ```

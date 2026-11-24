@@ -12,29 +12,34 @@ Proyecto de práctica para:
 
 ## Arquitectura
 
+Definición completa: **[docs/ARQUITECTURA.md](docs/ARQUITECTURA.md)** (componentes, plan de IPs, seguridad,
+flujos, decisiones, limitaciones y costos).
+
 ```
-                       Internet
-                          │
-         HTTP :80 (todos) │  SSH :22 (solo tu IP)
-                          ▼
-┌──────────────── VPC default ───────────────────────────────┐
-│  ┌─ SG: diario-web-sg ───────────────────┐                  │
-│  │  EC2 t3.micro · Amazon Linux 2023      │                  │
-│  │  ┌──────────────────────────────────┐  │                  │
-│  │  │ Docker: contenedor "diario-app"  │  │                  │
-│  │  │ Node.js + Express  (80 → 3000)   │  │                  │
-│  │  └──────────────┬───────────────────┘  │                  │
-│  └─────────────────┼──────────────────────┘                  │
-│                    │ MySQL :3306 (solo desde diario-web-sg)  │
-│  ┌─ SG: diario-db-sg ┼────────────────────┐                  │
-│  │  RDS MySQL db.t3.micro · sin acceso    │                  │
-│  │  público · base "diario"               │                  │
-│  └────────────────────────────────────────┘                  │
-└──────────────────────────────────────────────────────────────┘
+                 Usuario (HTTP :80)        Administrador (SSH :22, solo su IP)
+                          \                    /
+                           ▼                  ▼
+┌─────────────────────────── VPC diario-vpc 10.0.0.0/16 ───────────────────────────┐
+│                         [ Internet Gateway diario-igw ]                           │
+│                                      │                                            │
+│   Zona us-east-1a                    │                 Zona us-east-1b            │
+│  ┌─ Subred pública A 10.0.1.0/24 ────▼──────────┐   ┌─ Subred pública B ────────┐ │
+│  │  [SG diario-web-sg]                          │   │  10.0.2.0/24 (reserva)    │ │
+│  │  EC2 t3.micro · Docker · diario-app 80→3000  │   └───────────────────────────┘ │
+│  └──────────────────────┬───────────────────────┘                                 │
+│                         │ MySQL :3306                                             │
+│  ┌─ Subred privada A 10.0.11.0/24 ──▼───────────┐   ┌─ Subred privada B ────────┐ │
+│  │  [SG diario-db-sg]                           │   │  10.0.12.0/24             │ │
+│  │  RDS MySQL db.t3.micro · sin acceso público  │   │  (DB subnet group)        │ │
+│  └──────────────────────────────────────────────┘   └───────────────────────────┘ │
+│  Rutas públicas: 0.0.0.0/0 → IGW   ·   Rutas privadas: solo local (sin internet)  │
+└───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Decisiones clave:**
-- **RDS sin acceso público:** la base solo es accesible desde dentro de la VPC.
+- **VPC propia** con subredes públicas (web) y privadas (base de datos) en 2 zonas de disponibilidad, **sin NAT Gateway** (costo cero).
+- **RDS en subredes privadas** y sin acceso público: la base solo es accesible desde dentro de la VPC.
+- **La imagen Docker se construye en el EC2** a partir del código en GitHub (sin ECR).
 - **Encadenamiento de Security Groups:** RDS acepta el puerto 3306 **solo** desde instancias con `diario-web-sg`, no desde IPs.
 - **SSH restringido a tu IP**, y HTTP abierto para que la web sea pública.
 - **Credenciales en `.env`**, que se queda en el servidor y nunca entra a git.
@@ -55,6 +60,7 @@ docker-compose.yml       producción en EC2 (solo la app; la BD es RDS)
 docker-compose.local.yml pruebas en tu PC (agrega un MySQL local que simula RDS)
 .env.example             plantilla de configuración
 scripts/instalar-docker.sh  prepara el EC2 (Docker, Compose, Git, cliente MySQL)
+docs/ARQUITECTURA.md        definición de la arquitectura (diagramas, red, seguridad, decisiones)
 docs/DESPLIEGUE.md          guía paso a paso: consola de AWS + comandos CLI
 docs/SOLUCION-DE-ERRORES.md diagnóstico, fallas típicas y laboratorio de fallas
 ```
@@ -81,15 +87,17 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml down
 ## Desplegar en AWS
 
 Sigue **[docs/DESPLIEGUE.md](docs/DESPLIEGUE.md)**. En resumen:
-1. Crear los Security Groups `diario-web-sg` y `diario-db-sg`.
-2. Crear el key pair, la instancia EC2 y la base RDS.
-3. Entrar por SSH, instalar Docker, `git clone`, configurar `.env` y ejecutar `docker compose up -d --build`.
-4. Abrir `http://<IP-pública-EC2>`.
+1. Crear la red: VPC `10.0.0.0/16`, 2 subredes públicas, 2 privadas, Internet Gateway y tablas de rutas.
+2. Crear los Security Groups `diario-web-sg` y `diario-db-sg`.
+3. Crear el key pair, el EC2 (en la subred pública) y RDS (en las subredes privadas, con un DB subnet group).
+4. Entrar por SSH, instalar Docker, `git clone`, configurar `.env` y ejecutar `docker compose up -d --build`.
+5. Abrir `http://<IP-pública-EC2>`.
 
 Si algo falla, consulta **[docs/SOLUCION-DE-ERRORES.md](docs/SOLUCION-DE-ERRORES.md)**.
 
 ## Costos
 
+La VPC, las subredes, el IGW, las rutas y los SG no tienen costo, y no usamos NAT Gateway.
 Con Free Tier: EC2 t3.micro y RDS db.t3.micro tienen 750 horas al mes gratis cada uno, y RDS incluye 20 GB.
-Las **IPv4 públicas se cobran por hora**. **Borra los recursos al terminar** (ver la sección 11 de la guía)
+Las **IPv4 públicas se cobran por hora**. **Borra los recursos al terminar** (ver la sección 12 de la guía)
 y crea una alerta de presupuesto en *Billing → Budgets*.

@@ -5,14 +5,15 @@
 Cuando "no funciona", recorre el camino que hace una petición, **de afuera hacia adentro**:
 
 ```
-[1] Navegador ─▶ [2] SG diario-web-sg ─▶ [3] EC2 / Docker ─▶ [4] Contenedor (app Node)
-                                                                    │
-                     [6] RDS MySQL ◀── [5] SG diario-db-sg ◀────────┘
+[1] Navegador ─▶ [1b] IGW + tabla de rutas ─▶ [2] SG diario-web-sg ─▶ [3] EC2 / Docker ─▶ [4] Contenedor (app Node)
+                                                                                              │
+                                   [6] RDS MySQL (subred privada) ◀── [5] SG diario-db-sg ◀───┘
 ```
 
 | Capa | Pregunta | Cómo comprobarlo |
 |---|---|---|
 | 1 | ¿Uso la URL correcta? | `http://IP` (no `https`), con la IP **actual** del EC2 |
+| 1b | ¿El EC2 está en una subred pública y con IP pública? | Instancia → *Networking*: subred `public`, *Public IPv4* presente · la tabla de rutas de esa subred tiene `0.0.0.0/0 → igw-…` |
 | 2 | ¿El firewall deja pasar el 80 o el 22? | Consola → EC2 → Security Groups → Inbound rules |
 | 3 | ¿El servidor y Docker están vivos? | Status checks 2/2 · `systemctl status docker` |
 | 4 | ¿El contenedor corre y responde? | `docker compose ps` · `docker compose logs` · `curl localhost/health` |
@@ -59,12 +60,27 @@ sudo tail -n 50 /var/log/cloud-init-output.log   # salida del script User data
 ```
 
 **Dónde mirar en la consola de AWS:**
+- **VPC → tu VPC → Resource map**: muestra subredes, tablas de rutas e IGW, y cómo se conectan.
+- **VPC → Reachability Analyzer**: simula si un paquete puede ir de A a B (por ejemplo, del IGW a la instancia por el 80) y dice qué lo bloquea.
 - **EC2 → instancia → Status checks**: si *Instance reachability* falla, el SO no arrancó.
 - **EC2 → instancia → Actions → Monitor and troubleshoot → Get system log**: el log de arranque.
 - **RDS → base → Logs & events**: eventos recientes (reinicios, cambios) y `error/mysql-error.log`.
 - **RDS → base → Monitoring**: CPU, conexiones y almacenamiento libre.
 
 ## 3. Fallas típicas: síntoma → causa → solución
+
+### Red (VPC, subredes, rutas)
+
+| Síntoma | Causa probable | Solución |
+|---|---|---|
+| La instancia no tiene *Public IPv4 address* | Se lanzó sin *Auto-assign public IP*, o en una subred privada | Si está en la subred pública: asóciale una Elastic IP. Si está en una privada: termínala y lánzala en la pública |
+| SSH y HTTP dan *timed out*, y los SG están bien | La tabla de rutas de la subred del EC2 **no tiene** `0.0.0.0/0 → igw` (o el IGW no está *Attached*) | VPC → Route tables → la pública → *Edit routes* → agrega `0.0.0.0/0` → Internet Gateway. Revisa *Subnet associations* |
+| `dnf install` o `git clone` se quedan colgados dentro del EC2 | Misma causa: el EC2 no tiene salida a internet | Igual que la anterior |
+| RDS: `DB subnet group doesn't meet Availability Zone coverage requirement` | El subnet group tiene subredes en una sola AZ | Agrega subredes de **2 AZ distintas** (privada A y B) |
+| RDS: `The DB subnet group and the security group are in different VPCs` | `diario-db-sg` se creó en la VPC default | Crea el SG en `diario-vpc` |
+| No aparece `diario-web-sg` al lanzar el EC2 | Elegiste otra VPC en *Network settings* | Selecciona `diario-vpc`: los SG solo se ven dentro de su VPC |
+| `getent hosts <endpoint>` no devuelve nada | La VPC tiene desactivado *DNS resolution* o *DNS hostnames* | VPC → *Actions → Edit VPC settings* → activa ambas opciones |
+| Todo parece bien, pero nada pasa | Una Network ACL fue modificada | VPC → Network ACLs → deben permitir todo (regla 100 *Allow*) en entrada y salida |
 
 ### SSH
 
@@ -169,12 +185,26 @@ Haz **una por una**. En cada falla: rómpela → observa el síntoma → diagnos
 - **Síntoma:** `/health` da error; en los logs aparecen reintentos.
 - **Arreglar:** *Actions → Start*. Cuando quede *Available*, la app se reconecta **sin reiniciarla**.
 
+### Falla 8: Quitar la ruta a internet
+- **Romper:** VPC → Route tables → `diario-rtb-public` (o `diario-rt-public` si la creaste por CLI) → *Edit routes* → elimina `0.0.0.0/0`.
+- **Síntoma:** SSH y la web dan *timed out*, aunque los Security Groups están bien.
+  Si ya tenías una sesión SSH abierta, se congela.
+- **Diagnóstico:** EC2 → *Status checks* sigue en 2/2, así que la instancia está viva.
+  En la consola de la VPC, la tabla pública no tiene ruta al IGW. *Reachability Analyzer* lo confirma.
+- **Conclusión:** una subred es "pública" **solo por su ruta al Internet Gateway**.
+- **Arreglar:** vuelve a agregar `0.0.0.0/0 → igw-…`.
+
+### Falla 9 (demostración de seguridad): intentar entrar a RDS desde tu PC
+- **Probar:** desde tu PC: `Test-NetConnection <ENDPOINT_RDS> -Port 3306` (PowerShell).
+- **Resultado esperado:** **falla**. El endpoint resuelve a una IP privada `10.0.x.x`, que no existe en internet.
+- **Conclusión:** la base solo es alcanzable desde dentro de la VPC. Ese es el comportamiento correcto, no un error.
+
 ## 5. Plantilla para documentar cada incidente
 
 ```
 Fecha/hora:
 Síntoma observado:          (qué veía el usuario / mensaje exacto)
-Capa afectada:              (navegador / SG web / EC2 / Docker / app / SG BD / RDS)
+Capa afectada:              (navegador / rutas-IGW / SG web / EC2 / Docker / app / SG BD / RDS)
 Comandos de diagnóstico:    (y su salida relevante)
 Causa raíz:
 Solución aplicada:
