@@ -186,11 +186,31 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
 **Objetivo:** MySQL en las subredes privadas, sin acceso público.
 
 - [ ] RDS → *Grupos de subredes* → *Crear*: nombre `diario-db-subnets` · VPC `diario-vpc` · zonas `us-east-2a` y `us-east-2b` · subredes **solo las privadas**: `diario-subnet-private1-us-east-2a` (`10.0.128.0/20`) y `diario-subnet-private2-us-east-2b` (`10.0.144.0/20`). El aviso de "3 subredes en 3 zonas" es para clústeres Multi-AZ: ignóralo.
-- [ ] RDS → *Create database*: MySQL · plantilla Free tier · `diario-db` · usuario `admin`.
-- [ ] `db.t3.micro` · 20 GiB · *autoscaling* desactivado.
-- [ ] VPC `diario-vpc` · subnet group `diario-db-subnets` · **Public access: No** · SG **solo** `diario-db-sg` · AZ `us-east-2a`.
-- [ ] *Initial database name*: `diario` · backups de 1 día · *Enhanced monitoring* desactivado.
-- [ ] Pulsa **Create** y **continúa con la fase 4** sin esperar.
+- [ ] Revisa la lista de **Bases de datos**: si ya existe alguna que no uses (de pruebas anteriores), bórrala. Consume horas del Free Tier.
+- [ ] *Crear base de datos* → **Configuración completa**, para crearla desde cero.
+      No uses *Configuración exprés*: aplica valores por defecto y no deja elegir el grupo de subredes, el acceso público ni el SG.
+      *Restaurar desde S3* es para importar un respaldo existente.
+
+| Sección de la consola | Valor |
+|---|---|
+| Opciones del motor | **MySQL** (versión por defecto) |
+| Plantillas | **Capa gratuita** (o *Sandbox*) |
+| Identificador de la instancia de base de datos | `diario-db` |
+| Nombre de usuario maestro | `admin` |
+| Administración de credenciales | **Autoadministrado** → tu contraseña (fase 0) |
+| Clase de instancia | `db.t3.micro` (o `db.t4g.micro`) |
+| Almacenamiento | 20 GiB · **desmarca** *escalado automático del almacenamiento* |
+| Recurso de computación | **No se conecte a un recurso informático EC2** (los SG ya están hechos a mano) |
+| Nube privada virtual (VPC) | `diario-vpc` |
+| Grupo de subredes de base de datos | `diario-db-subnets` |
+| **Acceso público** | **No** |
+| Grupo de seguridad de VPC | **Elegir existente** → quita `default`, deja **solo** `diario-db-sg` |
+| Zona de disponibilidad | `us-east-2a` |
+| Configuración adicional → Nombre de base de datos inicial | `diario` |
+| Copia de seguridad | retención de 1 día |
+| Monitorización mejorada | desactivada |
+
+- [ ] Pulsa **Crear base de datos** y **continúa con la fase 4** sin esperar.
 
 **Control de salida** (compruébalo al empezar la fase 6):
 - [ ] Estado **Available**.
