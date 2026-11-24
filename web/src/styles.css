@@ -94,6 +94,9 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* React monta todo dentro de #root: hereda el layout en columna del body */
+#root { flex: 1; display: flex; flex-direction: column; }
+
 ::selection { background: var(--acento); color: var(--sobre-acento); }
 
 a { color: var(--acento); text-underline-offset: .2em; text-decoration-thickness: 1px; }
@@ -167,6 +170,7 @@ h1, h2, h3 { text-wrap: balance; margin: 0; }
   transition: background-color .15s, border-color .15s, transform .15s var(--ease);
 }
 .boton:active { transform: scale(.97); }
+.boton:disabled { opacity: .6; cursor: progress; transform: none; }
 .boton-primario { background: var(--acento); color: var(--sobre-acento); }
 .boton-secundario { background: var(--superficie); color: var(--tinta); border-color: var(--linea); }
 .boton-fantasma { background: transparent; color: var(--tenue); }
@@ -308,6 +312,26 @@ h1, h2, h3 { text-wrap: balance; margin: 0; }
   .fila a:hover { background: var(--hundido); }
 }
 
+/* ---------- Cargando ---------- */
+.actualizando { opacity: .55; transition: opacity .2s; }
+
+.esqueleto {
+  border-radius: 6px;
+  background: var(--hundido);
+  animation: latido 1.4s ease-in-out infinite;
+}
+.esqueleto-mes { width: 9rem; height: .8rem; margin: 6px 0 14px; }
+.esqueleto-h1 { width: 75%; height: 2rem; margin-bottom: 20px; }
+.esqueleto-dia { width: 2.25rem; height: 2.25rem; justify-self: center; }
+.esqueleto-titulo { width: 60%; height: 1rem; }
+.esqueleto-linea { width: 100%; height: .8rem; margin-bottom: 10px; }
+.esqueleto-linea.corta { width: 55%; }
+.fila-esqueleto {
+  display: grid; grid-template-columns: 2.75rem 1fr; gap: 14px;
+  padding: 16px;
+}
+@keyframes latido { 50% { opacity: .45; } }
+
 /* ---------- Estado vacío y error ---------- */
 .vacio {
   display: grid; justify-items: center; gap: 10px;
@@ -364,7 +388,6 @@ h1, h2, h3 { text-wrap: balance; margin: 0; }
   display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
   margin-top: 20px;
 }
-.acciones form { margin: 0; display: grid; }
 .acciones-centro { width: 100%; max-width: 26rem; }
 
 /* ---------- Formulario ---------- */
@@ -401,6 +424,7 @@ input:focus, textarea:focus {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--acento) 25%, transparent);
 }
 input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
+[aria-invalid="true"] { border-color: var(--peligro); }
 
 .campo-fecha input { max-width: 14rem; }
 

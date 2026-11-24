@@ -12,6 +12,17 @@ echo ">> Habilitando Docker para que arranque con el sistema..."
 systemctl enable --now docker
 usermod -aG docker ec2-user   # permite usar docker sin sudo (requiere volver a entrar por SSH)
 
+# El t3.micro tiene 1 GB de RAM: compilar React (vite build) puede agotarla.
+# Un archivo de swap de 1 GB evita que el build se corte con "Killed".
+if ! swapon --show | grep -q /swapfile; then
+  echo ">> Creando swap de 1 GB..."
+  dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
+  chmod 600 /swapfile
+  mkswap /swapfile > /dev/null
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+fi
+
 ARCH="$(uname -m)"            # x86_64 (t3.micro) o aarch64 (t4g.micro)
 case "$ARCH" in
   x86_64)  BX_ARCH=amd64 ;;

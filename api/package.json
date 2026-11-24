@@ -1,7 +1,7 @@
 {
-  "name": "diario-personal",
-  "version": "1.0.0",
-  "description": "Diario personal (Node.js + Express + MySQL en RDS) para practicar despliegue en AWS EC2",
+  "name": "diario-api",
+  "version": "2.0.0",
+  "description": "API REST del Diario personal (Node.js + Express + MySQL en RDS)",
   "main": "src/server.js",
   "private": true,
   "scripts": {
@@ -12,7 +12,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "ejs": "^3.1.10",
     "express": "^4.21.2",
     "morgan": "^1.10.0",
     "mysql2": "^3.11.5"

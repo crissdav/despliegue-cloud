@@ -1,8 +1,17 @@
-# 📔 Diario personal: despliegue en AWS (EC2 + Docker + RDS MySQL)
+# Diario personal: despliegue en AWS (EC2 + Docker + RDS MySQL)
 
 Aplicación web para escribir un diario personal: entradas por fecha, con **estado de ánimo**,
-búsqueda y filtros. Está hecha con **Node.js + Express**, se ejecuta en **contenedores Docker** dentro de
-una instancia **EC2** y guarda los datos en **MySQL administrado por Amazon RDS**.
+búsqueda y filtros. El frontend está hecho con **React + Vite** y lo sirve **Nginx**. El backend es una
+**API REST con Node.js + Express**. Ambos corren en **contenedores Docker** dentro de una instancia **EC2**,
+y los datos se guardan en **MySQL administrado por Amazon RDS**.
+
+| Capa | Tecnología |
+|---|---|
+| Frontend | React 18 + React Router + Vite (SPA), CSS propio mobile-first, íconos SVG |
+| Servidor web | Nginx 1.27 (sirve React y hace de *reverse proxy* hacia la API) |
+| Backend | Node.js 22 + Express 4 (API REST en JSON) + mysql2 |
+| Base de datos | MySQL 8 en Amazon RDS (en local: contenedor MySQL 8.4) |
+| Infraestructura | Docker + Docker Compose sobre EC2 (Amazon Linux 2023), VPC propia |
 
 Proyecto de práctica para:
 1. Crear y administrar una instancia **EC2**, con acceso **SSH** y reglas del **Security Group**.
@@ -25,7 +34,11 @@ flujos, decisiones, limitaciones y costos).
 │   Zona us-east-1a                    │                 Zona us-east-1b            │
 │  ┌─ Subred pública A 10.0.1.0/24 ────▼──────────┐   ┌─ Subred pública B ────────┐ │
 │  │  [SG diario-web-sg]                          │   │  10.0.2.0/24 (reserva)    │ │
-│  │  EC2 t3.micro · Docker · diario-app 80→3000  │   └───────────────────────────┘ │
+│  │  EC2 t3.micro · Docker                       │   └───────────────────────────┘ │
+│  │   :80 ▶ [diario-web] Nginx + React           │                                 │
+│  │            │ /api/*                          │                                 │
+│  │            ▼                                 │                                 │
+│  │         [diario-api] Express :3000           │                                 │
 │  └──────────────────────┬───────────────────────┘                                 │
 │                         │ MySQL :3306                                             │
 │  ┌─ Subred privada A 10.0.11.0/24 ──▼───────────┐   ┌─ Subred privada B ────────┐ │
@@ -39,27 +52,36 @@ flujos, decisiones, limitaciones y costos).
 **Decisiones clave:**
 - **VPC propia** con subredes públicas (web) y privadas (base de datos) en 2 zonas de disponibilidad, **sin NAT Gateway** (costo cero).
 - **RDS en subredes privadas** y sin acceso público: la base solo es accesible desde dentro de la VPC.
-- **La imagen Docker se construye en el EC2** a partir del código en GitHub (sin ECR).
+- **Dos contenedores:** `diario-web` (Nginx, el único con puerto publicado, el 80) y `diario-api` (Express, solo accesible desde Nginx).
+- **Las imágenes Docker se construyen en el EC2** a partir del código en GitHub (sin ECR). El frontend usa un build *multi-stage*: Node compila React y la imagen final solo lleva Nginx.
 - **Encadenamiento de Security Groups:** RDS acepta el puerto 3306 **solo** desde instancias con `diario-web-sg`, no desde IPs.
 - **SSH restringido a tu IP**, y HTTP abierto para que la web sea pública.
 - **Credenciales en `.env`**, que se queda en el servidor y nunca entra a git.
-- **`/health`:** un endpoint que dice si la app y la conexión a RDS están bien (es la base del diagnóstico).
-- **`restart: unless-stopped`:** el contenedor se levanta solo tras caídas o reinicios del EC2.
+- **`/api/health`:** un endpoint que dice si la API y la conexión a RDS están bien (es la base del diagnóstico).
+- **`restart: unless-stopped`:** los contenedores se levantan solos tras caídas o reinicios del EC2.
 
 ## Estructura del repositorio
 
 ```
-app/
-  src/server.js          rutas web, /health, manejo de errores
+web/                     FRONTEND (React + Vite, servido por Nginx)
+  src/main.jsx           punto de entrada de React
+  src/App.jsx            rutas de la SPA (React Router)
+  src/paginas/           Inicio, VerEntrada, FormularioEntrada
+  src/componentes/       Plantilla (cabecera/pie), íconos SVG, estados de carga y error
+  src/api.js             cliente de la API (fetch) con mensajes para 502/503/504
+  src/styles.css         estilos mobile-first (modo claro y oscuro)
+  nginx.conf             sirve React y reenvía /api → api:3000
+  Dockerfile             multi-stage: Node compila → Nginx sirve
+api/                     BACKEND (API REST)
+  src/server.js          rutas /api/entradas (GET, POST, PUT, DELETE), /api/health
   src/db.js              conexión a MySQL y creación automática de la tabla
-  views/                 pantallas HTML (EJS)
-  public/styles.css      estilos (modo claro y oscuro)
-  Dockerfile             imagen de la app (Node 22 Alpine, usuario no-root, healthcheck)
+  Dockerfile             Node 22 Alpine, usuario no-root, healthcheck
 db/init.sql              esquema de la tabla + datos de ejemplo
-docker-compose.yml       producción en EC2 (solo la app; la BD es RDS)
+docker-compose.yml       producción en EC2 (web + api; la BD es RDS)
 docker-compose.local.yml pruebas en tu PC (agrega un MySQL local que simula RDS)
 .env.example             plantilla de configuración
 scripts/instalar-docker.sh  prepara el EC2 (Docker, Compose, Git, cliente MySQL)
+docs/LOCAL.md               guía para levantarlo en tu PC con Docker
 docs/ARQUITECTURA.md        definición de la arquitectura (diagramas, red, seguridad, decisiones)
 docs/DESPLIEGUE.md          guía paso a paso: consola de AWS + comandos CLI
 docs/SOLUCION-DE-ERRORES.md diagnóstico, fallas típicas y laboratorio de fallas
@@ -68,11 +90,25 @@ docs/SOLUCION-DE-ERRORES.md diagnóstico, fallas típicas y laboratorio de falla
 ## Funcionalidades
 
 - Crear, ver, editar y eliminar entradas del diario.
-- Seis estados de ánimo (😄 😌 😐 😢 😠 😰) con colores y conteo por ánimo.
-- Búsqueda por texto y filtro por ánimo.
-- `/health` con el estado en JSON: app, conexión a BD, versión de MySQL y latencia.
+- Seis estados de ánimo con íconos propios, colores y conteo por ánimo.
+- Búsqueda mientras escribes y filtro por ánimo (los filtros quedan en la URL).
+- Diseño mobile-first: botón flotante, barra de guardar fija y casillas táctiles grandes.
+- `/api/health` con el estado en JSON: API, conexión a BD, versión de MySQL y latencia.
 - Contraseña opcional (HTTP Basic) definiendo `APP_PASSWORD` en `.env`.
-- La app **no se cae** si la BD falla: muestra un error claro y se reconecta sola.
+- Nada se cae del todo si falla una capa: la interfaz explica qué falló (502, 503 o 504), ofrece *Reintentar* y la API se reconecta sola a la BD.
+
+### API REST
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/entradas?q=&animo=` | Lista (máx. 200) + conteo por ánimo |
+| `GET` | `/api/entradas/:id` | Una entrada |
+| `POST` | `/api/entradas` | Crear: `{fecha, titulo, contenido, animo}` → `201` |
+| `PUT` | `/api/entradas/:id` | Actualizar → `200` |
+| `DELETE` | `/api/entradas/:id` | Eliminar → `204` |
+| `GET` | `/api/health` | Estado de la API y de la base de datos |
+
+Si los datos no son válidos, la API responde `400 {"errores": {"campo": "mensaje"}}`.
 
 ## Probar en tu PC (opcional, antes de AWS)
 
@@ -80,7 +116,7 @@ Guía detallada: **[docs/LOCAL.md](docs/LOCAL.md)**. Versión corta (requiere Do
 ```powershell
 Copy-Item .env.example .env      # pon cualquier contraseña en DB_PASSWORD
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
-# Abre http://localhost:8080  y  http://localhost:8080/health
+# Abre http://localhost:8080  y  http://localhost:8080/api/health
 docker compose -f docker-compose.yml -f docker-compose.local.yml down
 ```
 

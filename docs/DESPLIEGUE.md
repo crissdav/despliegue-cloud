@@ -397,14 +397,24 @@ cp .env.example .env
 nano .env          # completa DB_HOST (endpoint RDS) y DB_PASSWORD. Guardar: Ctrl+O, Enter. Salir: Ctrl+X
 chmod 600 .env     # solo tu usuario puede leerlo
 
-docker compose up -d --build     # construye la imagen y arranca el contenedor en segundo plano
+docker compose up -d --build     # construye las 2 imágenes y arranca los contenedores en segundo plano
 ```
+
+Qué se construye:
+- **`diario-api`**: Node.js + Express (la API REST). Usa el `.env` para conectarse a RDS.
+- **`diario-web`**: compila React con Vite y lo sirve con **Nginx** en el puerto 80. Las peticiones a `/api/...` se reenvían a `diario-api`.
+
+> La primera vez tarda entre 3 y 5 minutos en un t3.micro, sobre todo por la compilación de React
+> (`npm ci` + `vite build`). Las siguientes veces Docker reutiliza las capas en caché y tarda menos.
+> Si el build se corta con `Killed` o se queda sin memoria, mira la sección de errores de Docker en
+> [SOLUCION-DE-ERRORES.md](SOLUCION-DE-ERRORES.md).
 
 Comprobaciones:
 ```bash
-docker compose ps                 # STATUS debe ser "Up ... (healthy)"
-docker compose logs --tail 20     # debe decir: [db] Conectado a ... base "diario" lista.
-curl -s localhost/health          # {"app":"ok", ... "db":"ok" ...}
+docker compose ps                     # ambos contenedores: "Up ... (healthy)"
+docker compose logs --tail 20 api     # debe decir: [db] Conectado a ... base "diario" lista.
+curl -I localhost/                    # HTTP/1.1 200 OK  (Nginx sirve React)
+curl -s localhost/api/health          # {"api":"ok", ... "db":"ok" ...}  (Nginx -> API -> RDS)
 ```
 
 ---
@@ -413,8 +423,9 @@ curl -s localhost/health          # {"app":"ok", ... "db":"ok" ...}
 
 Abre **`http://<IP_PUBLICA_EC2>`**: con `http`, **no** `https`, porque no configuramos un certificado.
 
-- Debe aparecer **📔 Mi diario**. Crea, edita y borra una entrada.
-- Abre `http://<IP_PUBLICA_EC2>/health`: debe mostrar `"db":"ok"` y la versión de MySQL de RDS.
+- Debe aparecer **Mi diario**. Crea, edita y borra una entrada.
+- Recarga la página estando dentro de una entrada (`/entradas/1`): debe seguir funcionando. Así compruebas que Nginx atiende las rutas de React.
+- Abre `http://<IP_PUBLICA_EC2>/api/health`: debe mostrar `"db":"ok"` y la versión de MySQL de RDS.
 - Pruébalo también desde el celular, con datos móviles.
 
 **Capturas sugeridas para tu entrega:**
@@ -424,7 +435,7 @@ Abre **`http://<IP_PUBLICA_EC2>`**: con `http`, **no** `https`, porque no config
 - La instancia *Running* con 2/2 checks, dentro de la subred pública.
 - RDS *Available*, con *Public access: No* y el subnet group de subredes privadas.
 - La terminal SSH con `getent hosts` (IP 10.0.x.x), `nc -zv` y `docker compose ps`.
-- La app en el navegador y la respuesta de `/health`.
+- La app en el navegador y la respuesta de `/api/health`.
 
 ---
 

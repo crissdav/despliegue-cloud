@@ -1,9 +1,11 @@
 # Solo para probar en tu PC (simula RDS con un contenedor MySQL).
-# Uso:  docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+# Uso:  docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 services:
-  app:
+  web:
     ports: !override
-      - "8080:3000"         # en tu PC: http://localhost:8080
+      - "8080:80"          # en tu PC: http://localhost:8080
+
+  api:
     environment:
       DB_HOST: mysql
     depends_on:
@@ -13,6 +15,7 @@ services:
   mysql:
     image: mysql:8.4
     container_name: diario-mysql-local
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME:-diario}

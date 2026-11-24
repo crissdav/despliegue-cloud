@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Aplicación** | Diario personal (Node.js 22 + Express + EJS) |
-| **Modelo** | Una instancia EC2 con Docker y una base de datos administrada RDS MySQL |
+| **Aplicación** | Diario personal: frontend **React 18 + Vite** (SPA) y backend **API REST con Node.js 22 + Express** |
+| **Modelo** | Una instancia EC2 con 2 contenedores Docker (**Nginx** + **API**) y una base de datos administrada RDS MySQL |
 | **Red** | VPC propia `10.0.0.0/16` con subredes **públicas** (web) y **privadas** (base de datos) en 2 zonas de disponibilidad |
 | **Despliegue** | Código en GitHub → `git pull` en el EC2 → `docker compose up -d --build` |
 | **Región** | `us-east-1` (N. Virginia); zonas `us-east-1a` y `us-east-1b` |
@@ -26,7 +26,11 @@ flowchart TB
         subgraph AZA["Zona us-east-1a"]
           subgraph PUBA["Subred pública A · 10.0.1.0/24"]
             subgraph SGW["SG diario-web-sg"]
-              EC2["EC2 t3.micro · Amazon Linux 2023<br/>Docker → contenedor diario-app<br/>puerto 80 → 3000"]
+              subgraph EC2["EC2 t3.micro · Amazon Linux 2023 · Docker"]
+                WEB["diario-web<br/>Nginx :80<br/>React compilado"]
+                API["diario-api<br/>Express :3000<br/>API REST (JSON)"]
+                WEB -- "/api/*" --> API
+              end
             end
           end
           subgraph PRIVA["Subred privada A · 10.0.11.0/24"]
@@ -45,8 +49,8 @@ flowchart TB
 
     U -- "HTTP :80" --> IGW
     A -- "SSH :22 (solo su IP)" --> IGW
-    IGW --> EC2
-    EC2 -- "MySQL :3306" --> RDS
+    IGW -- ":80" --> WEB
+    API -- "MySQL :3306" --> RDS
     EC2 -. "git clone / pull (salida HTTPS)" .-> GH
     A -. "git push" .-> GH
 ```
@@ -63,7 +67,11 @@ Versión en texto, por si el visor no muestra Mermaid:
 │   Zona us-east-1a                    │                 Zona us-east-1b            │
 │  ┌─ Subred pública A 10.0.1.0/24 ────▼──────────┐   ┌─ Subred pública B ────────┐ │
 │  │  [SG diario-web-sg]                          │   │  10.0.2.0/24 (reserva)    │ │
-│  │  EC2 t3.micro · Docker · diario-app 80→3000  │   └───────────────────────────┘ │
+│  │  EC2 t3.micro · Docker                       │   └───────────────────────────┘ │
+│  │   :80 ▶ [diario-web] Nginx + React           │                                 │
+│  │            │ /api/*                          │                                 │
+│  │            ▼                                 │                                 │
+│  │         [diario-api] Express :3000           │                                 │
 │  └──────────────────────┬───────────────────────┘                                 │
 │                         │ MySQL :3306                                             │
 │  ┌─ Subred privada A 10.0.11.0/24 ──▼───────────┐   ┌─ Subred privada B ────────┐ │
@@ -93,7 +101,8 @@ Versión en texto, por si el visor no muestra Mermaid:
 | Seguridad | Security Group | `diario-db-sg` | Entrada: 3306 **solo desde `diario-web-sg`** | Firewall de RDS |
 | Seguridad | Key Pair | `diario-key` | RSA, `.pem` | Acceso SSH al EC2 |
 | Cómputo | EC2 | `diario-ec2` | t3.micro, Amazon Linux 2023, 8 GiB gp3, subred pública A | Servidor de la aplicación |
-| Contenedor | Docker + Compose | `diario-app` | Node 22 Alpine, usuario no-root, healthcheck, `restart: unless-stopped` | Ejecuta la aplicación |
+| Contenedor | Docker + Compose | `diario-web` | Nginx 1.27 Alpine con React compilado (build multi-stage), healthcheck, `restart: unless-stopped`. Único puerto publicado: **80** | Sirve el frontend y reenvía `/api/*` a la API (reverse proxy) |
+| Contenedor | Docker + Compose | `diario-api` | Node 22 Alpine, usuario no-root, healthcheck. Puerto 3000 **solo dentro de la red de Docker** | API REST en JSON; único componente que habla con RDS |
 | Datos | RDS subnet group | `diario-db-subnets` | Subredes privadas A y B | Le dice a RDS en qué subredes puede vivir |
 | Datos | RDS MySQL | `diario-db` | MySQL 8, db.t3.micro, 20 GiB, Single-AZ, **Public access: No** | Base de datos administrada |
 | Código | GitHub | `despliegue-cloud` | Repositorio público o privado | Fuente del código que se despliega |
@@ -139,8 +148,11 @@ o se agrega otro servidor con `diario-web-sg`, el acceso a la base sigue funcion
 2. **Firewall:** `diario-db-sg` solo acepta el 3306 desde el SG web, y SSH solo se permite desde una IP.
 3. **Acceso al servidor:** se entra únicamente con la llave `.pem`; las contraseñas SSH están desactivadas en Amazon Linux.
 4. **Secretos:** las credenciales de la BD están en `.env` dentro del EC2 (`chmod 600`), **fuera de git**.
-5. **Contenedor:** la app corre como usuario `node` (no root), con una imagen Alpine mínima.
-6. **Aplicación:** usa consultas parametrizadas (no hay inyección SQL), escapa el HTML (no hay XSS) y permite proteger el diario con usuario y contraseña (`APP_PASSWORD`).
+5. **Contenedores:** solo Nginx publica un puerto (80). La API (3000) no es accesible desde fuera del EC2, solo a través de Nginx.
+   La API corre como usuario `node` (no root). La imagen web no incluye Node, solo Nginx y archivos estáticos.
+6. **Aplicación:** la API usa consultas parametrizadas (no hay inyección SQL) y valida los datos. React escapa el texto
+   automáticamente (no hay XSS). Nginx envía encabezados de seguridad (`X-Frame-Options`, `X-Content-Type-Options`) y oculta su versión.
+   Se puede proteger el diario con usuario y contraseña (`APP_PASSWORD`).
 7. **Opcional:** cifrar la conexión con la base usando TLS (`DB_SSL=true`, con los certificados de Amazon RDS).
 
 Las Network ACLs se dejan con los valores por defecto (todo permitido) y el control se hace con los Security Groups.
@@ -154,17 +166,24 @@ Las Network ACLs se dejan con los valores por defecto (todo permitido) y el cont
 ```mermaid
 sequenceDiagram
     participant N as Navegador
-    participant I as Internet Gateway
-    participant E as EC2 (Docker :80)
-    participant C as Contenedor diario-app (:3000)
+    participant W as diario-web (Nginx :80)
+    participant A as diario-api (Express :3000)
     participant R as RDS MySQL (:3306)
-    N->>I: GET http://IP-publica/
-    I->>E: diario-web-sg permite TCP 80
-    E->>C: Docker redirige 80 → 3000
-    C->>R: SELECT ... FROM entradas (diario-db-sg permite 3306 desde diario-web-sg)
-    R-->>C: filas
-    C-->>N: HTML renderizado (EJS)
+    N->>W: GET / (diario-web-sg permite TCP 80)
+    W-->>N: index.html + JS + CSS de React
+    Note over N: React se ejecuta en el navegador
+    N->>W: GET /api/entradas
+    W->>A: proxy_pass http://api:3000 (red interna de Docker)
+    A->>R: SELECT ... FROM entradas (diario-db-sg permite 3306 desde diario-web-sg)
+    R-->>A: filas
+    A-->>W: JSON
+    W-->>N: JSON → React dibuja la lista
 ```
+
+1. La primera visita descarga la **aplicación React** (archivos estáticos) desde Nginx.
+2. A partir de ahí, el navegador solo pide **datos en JSON** a `/api/...`.
+3. Nginx reenvía esas peticiones a la API por la **red interna de Docker**, usando el nombre `api`, que resuelve el DNS de Docker.
+4. Si el usuario recarga en `/entradas/5`, Nginx devuelve `index.html` (`try_files`) y React Router muestra la entrada.
 
 ### 5.2 Despliegue y actualización
 
@@ -173,15 +192,19 @@ Tu PC                     GitHub                 EC2 (por SSH)
 ──────                    ──────                 ─────────────
 git commit + git push ──▶ repositorio ──────────▶ git pull
                                                   docker compose up -d --build
-                                                   ├─ construye la imagen (Dockerfile)
-                                                   ├─ recrea el contenedor con .env
-                                                   └─ la app crea la tabla si no existe
-                                                  curl localhost/health  ✔
+                                                   ├─ api/Dockerfile → imagen diario-api
+                                                   ├─ web/Dockerfile (multi-stage):
+                                                   │    1. node: npm ci + vite build → dist/
+                                                   │    2. nginx + dist/ → imagen diario-web
+                                                   ├─ recrea los contenedores (api usa .env)
+                                                   └─ la API crea la tabla si no existe
+                                                  curl localhost/api/health  ✔
 ```
 
-La imagen **se construye en el propio EC2**. No usamos un registro de imágenes (ECR), así que
-no hace falta IAM ni hay costos extra. A cambio, cada despliegue tarda lo que dure el build
-(alrededor de un minuto en un t3.micro).
+Las imágenes **se construyen en el propio EC2**. No usamos un registro de imágenes (ECR), así que
+no hace falta IAM ni hay costos extra. A cambio, cada despliegue tarda lo que dure el build:
+la primera vez entre 3 y 5 minutos en un t3.micro, por la compilación de React. El script de
+instalación crea 1 GB de swap para que ese build no se quede sin memoria.
 
 ### 5.3 Administración
 
@@ -195,9 +218,11 @@ no hace falta IAM ni hay costos extra. A cambio, cada despliegue tarda lo que du
 
 | Qué | Dónde | Uso |
 |---|---|---|
-| Salud de la app y la BD | `GET /health` (JSON) | Ver de un vistazo si fallan la app, la red o las credenciales |
-| Healthcheck de Docker | `docker compose ps` → `(healthy)` | Docker revisa `/health` cada 30 s |
-| Logs de la app | `docker compose logs` | Cada petición, cada error y cada reintento de conexión |
+| Salud de la API y la BD | `GET /api/health` (JSON) | Ver de un vistazo si fallan la API, la red o las credenciales |
+| Healthcheck de Docker | `docker compose ps` → `(healthy)` | Docker revisa `/` en Nginx y `/api/health` en la API cada 30 s |
+| Logs de Nginx | `docker logs diario-web` | Cada petición con su código HTTP. Aquí aparecen los **502** cuando la API está caída |
+| Logs de la API | `docker logs diario-api` | Cada petición, cada error y cada reintento de conexión a la BD |
+| Errores en el navegador | La interfaz muestra un mensaje según el código (502, 503, 504) y un botón *Reintentar* | Saber qué capa falló sin abrir la terminal |
 | Servicio Docker | `systemctl status docker`, `journalctl -u docker` | Estado del motor de contenedores |
 | Arranque del EC2 | `/var/log/cloud-init-output.log`, *Get system log* | Ver si el script User data falló |
 | RDS | Consola → *Logs & events*, *Monitoring* | Reinicios, conexiones, CPU y almacenamiento |
@@ -215,6 +240,8 @@ El detalle de diagnóstico está en [SOLUCION-DE-ERRORES.md](SOLUCION-DE-ERRORES
 | 3 | 2 zonas de disponibilidad, pero 1 sola instancia | Multi-AZ real | RDS exige 2 AZ en su subnet group. Así la red queda lista para crecer sin pagar duplicado |
 | 4 | Un solo EC2 con IP pública | ALB + Auto Scaling | Free Tier y simplicidad. El ALB cuesta unos USD 16 al mes |
 | 5 | Docker Compose | Apache o Node instalados directamente | Entorno reproducible, igual en la PC y en AWS, fácil de diagnosticar |
+| 5b | Frontend en **React + Vite** (SPA) y backend como **API REST** | Plantillas renderizadas en el servidor (EJS) | Separa interfaz y datos, que es el estándar de la industria. La API se podría reutilizar desde una app móvil |
+| 5c | **Nginx** en su propio contenedor como servidor web y *reverse proxy* | Que Express sirva también los archivos de React | Nginx sirve archivos estáticos con más eficiencia, aísla la API (no expone el 3000) y permite practicar el diagnóstico de errores 502 y 504 |
 | 6 | Build en el EC2 desde GitHub | Amazon ECR | Menos piezas (sin IAM ni registro) y sin costo |
 | 7 | RDS MySQL | MySQL en un contenedor del EC2 | Respaldos, parches y monitoreo administrados por AWS. Es el objetivo de la práctica |
 | 8 | Secretos en `.env` | AWS Secrets Manager | Simplicidad. Secrets Manager cuesta unos USD 0.40 al mes por secreto |

@@ -5,9 +5,10 @@
 Cuando "no funciona", recorre el camino que hace una petición, **de afuera hacia adentro**:
 
 ```
-[1] Navegador ─▶ [1b] IGW + tabla de rutas ─▶ [2] SG diario-web-sg ─▶ [3] EC2 / Docker ─▶ [4] Contenedor (app Node)
-                                                                                              │
-                                   [6] RDS MySQL (subred privada) ◀── [5] SG diario-db-sg ◀───┘
+[1] Navegador ─▶ [1b] IGW + rutas ─▶ [2] SG diario-web-sg ─▶ [3] EC2 / Docker ─▶ [4a] diario-web (Nginx :80)
+                                                                                          │ /api/*
+                                                                                          ▼
+                              [6] RDS MySQL (subred privada) ◀── [5] SG diario-db-sg ◀── [4b] diario-api (Express :3000)
 ```
 
 | Capa | Pregunta | Cómo comprobarlo |
@@ -16,24 +17,32 @@ Cuando "no funciona", recorre el camino que hace una petición, **de afuera haci
 | 1b | ¿El EC2 está en una subred pública y con IP pública? | Instancia → *Networking*: subred `public`, *Public IPv4* presente · la tabla de rutas de esa subred tiene `0.0.0.0/0 → igw-…` |
 | 2 | ¿El firewall deja pasar el 80 o el 22? | Consola → EC2 → Security Groups → Inbound rules |
 | 3 | ¿El servidor y Docker están vivos? | Status checks 2/2 · `systemctl status docker` |
-| 4 | ¿El contenedor corre y responde? | `docker compose ps` · `docker compose logs` · `curl localhost/health` |
+| 4a | ¿Nginx corre y sirve la página? | `docker compose ps` → `diario-web (healthy)` · `curl -I localhost/` · `docker logs diario-web` |
+| 4b | ¿La API corre y Nginx llega a ella? | `curl localhost/api/health` · si da **502**, la API está caída: `docker logs diario-api` |
 | 5 | ¿El EC2 llega al puerto 3306? | `nc -zv <ENDPOINT_RDS> 3306` |
 | 6 | ¿La BD acepta mis credenciales? | `mysql -h <ENDPOINT_RDS> -u admin -p` · estado *Available* en RDS |
 
-> **El mejor atajo es `/health`.** Si `http://IP/health` responde, las capas 1 a 4 están bien.
+> **El mejor atajo es `/api/health`.** Si `http://IP/api/health` responde con JSON, las capas 1 a 4b están bien.
 > El campo `db` te dice si fallan la 5 o la 6, y `error` te da el código exacto.
+>
+> **Cómo leer el código HTTP:** la página no carga → capas 1 a 4a. **502** → Nginx no llega a la API (4b).
+> **503** → la API no llega a la base (5 o 6). **504** → la API tardó demasiado, normalmente porque la base no responde.
 
 ## 2. Comandos de diagnóstico (chuleta)
 
 ```bash
 # --- Docker y contenedores ---
 docker compose ps                     # estado: Up / Exited / Restarting / (healthy|unhealthy)
-docker compose logs -f --tail 50      # logs en vivo de la app (Ctrl+C para salir)
-docker logs diario-app --since 10m    # logs de los últimos 10 minutos
-docker inspect --format '{{json .State.Health}}' diario-app   # detalle del healthcheck
-docker exec -it diario-app sh         # entrar al contenedor (exit para salir)
-docker exec diario-app env | grep DB_ # ¿qué variables de entorno recibió la app?
-docker compose restart                # reiniciar la app
+docker compose logs -f --tail 50      # logs en vivo de ambos contenedores (Ctrl+C para salir)
+docker logs diario-api --since 10m    # logs de la API: peticiones, errores de BD, reintentos
+docker logs diario-web --since 10m    # logs de Nginx: accesos (con código HTTP) y errores de proxy
+docker inspect --format '{{json .State.Health}}' diario-api   # detalle del healthcheck
+docker exec -it diario-api sh         # entrar al contenedor de la API (exit para salir)
+docker exec diario-api env | grep DB_ # ¿qué variables de entorno recibió la API?
+docker exec diario-web nginx -t       # ¿la configuración de Nginx es válida?
+docker exec diario-web wget -qO- http://api:3000/api/health   # ¿Nginx llega a la API por la red de Docker?
+docker compose restart                # reiniciar ambos contenedores
+docker compose restart api            # reiniciar solo la API
 docker compose up -d --build          # reconstruir y levantar
 docker stats --no-stream              # consumo de CPU y RAM
 
@@ -43,7 +52,8 @@ sudo systemctl start docker           # arrancarlo   (enable = que arranque al i
 sudo journalctl -u docker --since "15 min ago" --no-pager   # logs del servicio Docker
 
 # --- Red ---
-curl -i localhost/health              # probar la app desde el propio EC2
+curl -I localhost/                    # ¿Nginx sirve la página? (desde el propio EC2)
+curl -i localhost/api/health          # ¿Nginx -> API -> BD funcionan?
 sudo ss -tlnp | grep ':80'            # ¿quién escucha en el puerto 80?
 nc -zv <ENDPOINT_RDS> 3306            # ¿llego al puerto de RDS? (Security Group)
 getent hosts <ENDPOINT_RDS>           # ¿resuelve el DNS del endpoint?
@@ -97,11 +107,23 @@ sudo tail -n 50 /var/log/cloud-init-output.log   # salida del script User data
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | Carga infinita y luego `ERR_CONNECTION_TIMED_OUT` | El SG no tiene la regla HTTP 80 | Agrega HTTP 80 desde `0.0.0.0/0` en `diario-web-sg` |
-| `ERR_CONNECTION_REFUSED` | El SG está bien, pero **nada escucha en el 80**: el contenedor está caído o el mapeo de puertos está mal | `docker compose ps`; si está *Exited*: `docker compose logs` y `docker compose up -d` |
+| `ERR_CONNECTION_REFUSED` | El SG está bien, pero **nada escucha en el 80**: `diario-web` está caído o el mapeo de puertos está mal | `docker compose ps`; si está *Exited*: `docker compose logs web` y `docker compose up -d` |
 | `ERR_SSL_PROTOCOL_ERROR` o el navegador cambia la URL a https | Estás entrando con `https://` | Escribe explícitamente `http://IP` |
-| Página **"Sin conexión con la base de datos"** (503) | La app vive, pero no llega a RDS | Mira `/health` → campo `error` y continúa en la tabla siguiente |
+| La página carga, pero dice **"Nginx no logra comunicarse con la API (502)"** | `diario-api` está detenido, reiniciándose o se cayó | `docker compose ps` · `docker logs diario-api --tail 30` · `docker compose up -d api` |
+| La página dice **"no logra conectarse con la base de datos"** (503) | La API vive, pero no llega a RDS | Abre `/api/health` → campo `error` y continúa en la tabla de la API → RDS |
+| Página en blanco | El JavaScript de React no cargó, o hubo un error en el navegador | F12 → pestaña *Console* y *Network* · `docker logs diario-web` (¿404 en `/assets/...`?) · reconstruye: `docker compose up -d --build web` |
+| Al recargar `/entradas/5` aparece **404 de Nginx** | Falta `try_files ... /index.html` en `nginx.conf` | Revisa `web/nginx.conf` (la SPA necesita que toda ruta devuelva `index.html`) |
 
-### Aplicación → RDS (el campo `error` de `/health` o `docker compose logs`)
+### Nginx → API
+
+| Síntoma (en `docker logs diario-web`) | Causa | Solución |
+|---|---|---|
+| `502` y `connect() failed (111: Connection refused) while connecting to upstream` | La API no escucha en el 3000 (detenida o arrancando) | `docker compose up -d api` · `docker logs diario-api` |
+| `502` y `api could not be resolved` | El contenedor `api` no existe en la red de Docker (no está creado o se renombró el servicio) | `docker compose up -d` · el servicio debe llamarse `api` en `docker-compose.yml` |
+| `504 Gateway Time-out` | La API tardó más de 15 s (normalmente esperando a la BD) | Revisa la conectividad con RDS (tabla siguiente) |
+| `nginx: [emerg] ...` al arrancar y `diario-web` en *Restarting* | Error de sintaxis en `nginx.conf` | `docker compose logs web` muestra la línea exacta · corrige y `docker compose up -d --build web` |
+
+### API → RDS (el campo `error` de `/api/health` o `docker logs diario-api`)
 
 | Código en el error | Significado | Solución |
 |---|---|---|
@@ -112,8 +134,8 @@ sudo tail -n 50 /var/log/cloud-init-output.log   # salida del script User data
 | `ER_DBACCESS_DENIED_ERROR` | El usuario no tiene permisos sobre esa base | Usa el usuario maestro `admin` o dale un `GRANT` |
 | `HANDSHAKE_SSL_ERROR` | Problema con TLS | Prueba `DB_SSL=false` y revisa que la imagen esté actualizada |
 
-> **Importante:** después de editar `.env` hay que **recrear** el contenedor, porque `restart` no relee el archivo:
-> `docker compose up -d --force-recreate`
+> **Importante:** después de editar `.env` hay que **recrear** la API, porque `restart` no relee el archivo:
+> `docker compose up -d --force-recreate api`
 
 ### Docker en el EC2
 
@@ -125,7 +147,8 @@ sudo tail -n 50 /var/log/cloud-init-output.log   # salida del script User data
 | `compose build requires buildx` | Falta el plugin buildx | Lo instala el mismo script |
 | `Bind for 0.0.0.0:80 failed: port is already allocated` | Otro proceso usa el 80 (por ejemplo, Apache `httpd`) | `sudo ss -tlnp \| grep :80` → `sudo systemctl stop httpd` |
 | STATUS `Restarting` en bucle | La app se cae al arrancar | `docker compose logs --tail 50` y corrige el error que aparezca |
-| `(unhealthy)` | `/health` no responde dentro del contenedor | `docker inspect --format '{{json .State.Health}}' diario-app` |
+| `(unhealthy)` | `/api/health` no responde dentro del contenedor | `docker inspect --format '{{json .State.Health}}' diario-api` |
+| El build se corta con `Killed`, `exit code: 137` o `JavaScript heap out of memory` | El t3.micro (1 GB de RAM) se quedó sin memoria compilando React | Comprueba el swap con `free -m` (el script crea 1 GB). Si no existe, vuelve a ejecutar `sudo bash scripts/instalar-docker.sh` |
 | `no space left on device` | El disco de 8 GB está lleno (imágenes viejas) | `docker system prune -af` y `df -h` |
 | `bad interpreter: /bin/bash^M` | El script tiene saltos de línea de Windows (CRLF) | `sed -i 's/\r$//' scripts/instalar-docker.sh` |
 | `env file .env not found` | No creaste el `.env` | `cp .env.example .env && nano .env` |
@@ -146,32 +169,41 @@ Haz **una por una**. En cada falla: rómpela → observa el síntoma → diagnos
 
 ### Falla 1: Cerrar el puerto 80
 - **Romper:** en `diario-web-sg`, borra la regla HTTP 80.
-- **Síntoma:** el navegador se queda cargando y da *timed out*. Pero en el EC2, `curl localhost/health` **sí** funciona.
+- **Síntoma:** el navegador se queda cargando y da *timed out*. Pero en el EC2, `curl localhost/api/health` **sí** funciona.
 - **Conclusión:** si funciona desde dentro y no desde fuera, el problema es el firewall, no la app.
 - **Arreglar:** vuelve a agregar HTTP 80 desde `0.0.0.0/0`.
 
-### Falla 2: Contenedor detenido
-- **Romper:** `docker compose stop`
+### Falla 2: Nginx detenido
+- **Romper:** `docker compose stop web`
 - **Síntoma:** el navegador muestra *connection refused* de inmediato, sin esperar.
-- **Diagnóstico:** `docker compose ps -a` → *Exited*; `sudo ss -tlnp | grep :80` → nada escucha.
+- **Diagnóstico:** `docker compose ps -a` → `diario-web` *Exited*; `sudo ss -tlnp | grep :80` → nada escucha.
 - **Arreglar:** `docker compose up -d`
-- **Extra:** `sudo reboot`. Al volver, la app arranca sola gracias a `restart: unless-stopped` y a que Docker está *enabled*.
+- **Extra:** `sudo reboot`. Al volver, ambos contenedores arrancan solos gracias a `restart: unless-stopped` y a que Docker está *enabled*.
+
+### Falla 2b: API detenida (502 Bad Gateway)
+- **Romper:** `docker compose stop api`
+- **Síntoma:** la página **sí** carga, porque Nginx sirve React, pero muestra *"Nginx no logra comunicarse con la API (502)"*.
+  `curl -i localhost/api/health` → `HTTP/1.1 502 Bad Gateway`.
+- **Diagnóstico:** `docker logs diario-web --tail 5` → `connect() failed ... while connecting to upstream`;
+  `docker compose ps -a` → `diario-api` *Exited*.
+- **Conclusión:** con dos contenedores, "la web carga" no significa "todo funciona". El código 502 señala la conexión entre Nginx y la API.
+- **Arreglar:** `docker compose start api` y en la página, **Reintentar**.
 
 ### Falla 3: Contraseña incorrecta
-- **Romper:** en `.env` cambia `DB_PASSWORD` y luego `docker compose up -d --force-recreate`.
-- **Síntoma:** la web muestra *"Sin conexión con la base de datos"*; `/health` → `"db":"error"`, `ER_ACCESS_DENIED_ERROR`.
-- **Diagnóstico:** `docker compose logs | grep db` · `mysql -h ... -u admin -p` con la contraseña correcta funciona.
-- **Arreglar:** corrige `.env` y ejecuta `docker compose up -d --force-recreate`.
+- **Romper:** en `.env` cambia `DB_PASSWORD` y luego `docker compose up -d --force-recreate api`.
+- **Síntoma:** la web muestra *"no logra conectarse con la base de datos"*; `/api/health` → `"db":"error"`, `ER_ACCESS_DENIED_ERROR`.
+- **Diagnóstico:** `docker logs diario-api | grep db` · `mysql -h ... -u admin -p` con la contraseña correcta funciona.
+- **Arreglar:** corrige `.env` y ejecuta `docker compose up -d --force-recreate api`.
 
 ### Falla 4: Quitar la regla del Security Group de RDS
 - **Romper:** en `diario-db-sg`, borra la regla 3306.
-- **Síntoma:** `/health` tarda unos 5 segundos y responde `ETIMEDOUT`; `nc -zv <ENDPOINT> 3306` se queda colgado.
+- **Síntoma:** `/api/health` tarda unos 5 segundos y responde `ETIMEDOUT`; `nc -zv <ENDPOINT> 3306` se queda colgado.
 - **Conclusión:** *timeout* = algo bloquea la red (SG). *Access denied* = la red está bien, fallan las credenciales.
 - **Arreglar:** agrega MySQL 3306 con origen `diario-web-sg`.
 
 ### Falla 5: Endpoint mal escrito
 - **Romper:** en `.env` cambia una letra de `DB_HOST` y recrea el contenedor.
-- **Síntoma:** `ENOTFOUND` en `/health` y en los logs; `getent hosts <host>` no devuelve nada.
+- **Síntoma:** `ENOTFOUND` en `/api/health` y en los logs; `getent hosts <host>` no devuelve nada.
 - **Arreglar:** copia el endpoint exacto desde RDS.
 
 ### Falla 6: Docker detenido
@@ -182,7 +214,7 @@ Haz **una por una**. En cada falla: rómpela → observa el síntoma → diagnos
 
 ### Falla 7: Base de datos detenida
 - **Romper:** RDS → `diario-db` → *Actions → Stop temporarily*.
-- **Síntoma:** `/health` da error; en los logs aparecen reintentos.
+- **Síntoma:** `/api/health` da error; en los logs aparecen reintentos.
 - **Arreglar:** *Actions → Start*. Cuando quede *Available*, la app se reconecta **sin reiniciarla**.
 
 ### Falla 8: Quitar la ruta a internet

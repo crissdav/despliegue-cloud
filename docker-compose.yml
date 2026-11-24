@@ -1,15 +1,29 @@
-# Producción (EC2): solo la app. La base de datos es RDS, configurada en .env
+# Producción (EC2): 2 contenedores. La base de datos es RDS, configurada en .env
+#
+#   Internet :80 ──▶ [web] Nginx (React compilado) ──/api──▶ [api] Express :3000 ──▶ RDS :3306
+#
 services:
-  app:
-    build: ./app
-    image: diario-personal:latest
-    container_name: diario-app
+  api:
+    build: ./api
+    image: diario-api:latest
+    container_name: diario-api
     env_file: .env
-    ports:
-      - "80:3000"          # puerto 80 del EC2 -> puerto 3000 del contenedor
-    restart: unless-stopped # se levanta solo si se cae o si se reinicia el EC2
-    logging:
+    expose:
+      - "3000"             # solo visible dentro de la red de Docker (no se publica al EC2)
+    restart: unless-stopped
+    logging: &logs
       driver: json-file
       options:
-        max-size: "10m"     # evita que los logs llenen el disco del EC2
+        max-size: "10m"    # evita que los logs llenen el disco del EC2
         max-file: "3"
+
+  web:
+    build: ./web
+    image: diario-web:latest
+    container_name: diario-web
+    ports:
+      - "80:80"            # puerto 80 del EC2 -> Nginx
+    depends_on:
+      - api
+    restart: unless-stopped
+    logging: *logs
