@@ -268,14 +268,12 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 2. [ ] Nombre: `diario-key` · Tipo: **RSA** · Formato: **.pem** (no `.ppk`, que es para PuTTY) → **Crear par de claves**.
 3. [ ] El navegador descarga `diario-key.pem`, normalmente en **Descargas**.
    > ⚠️ AWS **solo permite descargarlo una vez**. Si se pierde, hay que crear otro par de claves.
-4. [ ] Muévelo a `C:\claves-aws\` y deja que solo tu usuario pueda leerlo, desde PowerShell:
+4. [ ] Mueve el archivo **manualmente**, con el Explorador de archivos, a `C:\claves-aws\diario-key.pem`.
+5. [ ] Deja que solo tu usuario pueda leerlo, desde PowerShell:
    ```powershell
-   New-Item -ItemType Directory -Force "C:\claves-aws" | Out-Null
-   Move-Item "$env:USERPROFILE\Downloads\diario-key.pem" "C:\claves-aws\diario-key.pem"
    icacls "C:\claves-aws\diario-key.pem" /inheritance:r /grant:r "$($env:USERNAME):(R)"
    icacls "C:\claves-aws\diario-key.pem"     # debe mostrar un solo permiso: TU-PC\tu-usuario:(R)
    ```
-   Si `Move-Item` no encuentra el archivo, búscalo en el Explorador y ajusta la ruta.
    Sin el `icacls`, SSH rechaza la llave con `UNPROTECTED PRIVATE KEY FILE` en la fase 5.
 
 #### Paso 2: Lanzar el EC2
@@ -289,7 +287,7 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 |---|---|---|---|
 | 1 | Nombre y etiquetas | Nombre | `diario-ec2` |
 | 2 | Imágenes de aplicaciones y sistemas operativos (AMI) | Inicio rápido | **Amazon Linux** → *Amazon Linux 2023 AMI* (o **Ubuntu** → *Ubuntu Server 24.04 LTS*) · con la etiqueta **Apto para la capa gratuita** |
-| 3 | Imágenes de aplicaciones… | Arquitectura | **64 bits (x86)** |
+| 3 | Imágenes de aplicaciones… | Arquitectura | **64 bits (x86)** (la versión Arm no sirve con `t3.micro`) |
 | 4 | Tipo de instancia | — | **t3.micro** (*Apto para la capa gratuita*); si no aparece así, `t2.micro` |
 | 5 | Par de claves (inicio de sesión) | Nombre del par de claves | **`diario-key`** (el del paso 1). No elijas *Continuar sin un par de claves* |
 | 6 | Configuraciones de red | — | ⚠️ Pulsa **Editar**: lo que viene por defecto usa la VPC *default* y crea un SG nuevo con SSH abierto a todo internet |
@@ -302,6 +300,11 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 | 13 | Detalles avanzados | **Datos de usuario** (*User data*, el último campo) | ⚠️ Pega **todo** el contenido de [`scripts/instalar-docker.sh`](../scripts/instalar-docker.sh), desde `#!/bin/bash` hasta el final |
 | 14 | Detalles avanzados | Todo lo demás | Dejar por defecto |
 | 15 | Resumen (panel derecho) | Número de instancias | **1** |
+
+> **Si cambias la AMI después de haber llenado otras secciones** (por ejemplo, de Ubuntu 26.04 a **24.04 LTS**, que es la versión probada con el script),
+> aparece el aviso *"Algunos de los ajustes actuales se cambiarán o eliminarán"*. Es normal: pulsa **Confirmar cambios**.
+> Solo reinicia el formulario: **no borra ni modifica `diario-web-sg` ni `diario-db-sg`**.
+> Después vuelve a revisar las filas **6 a 10** (red y grupo de seguridad existente) y la **11** (20 GiB), porque regresan a sus valores por defecto.
 
 - [ ] Revisa en el **Resumen** del panel derecho: AMI correcta · `t3.micro` · grupo de seguridad **`diario-web-sg`** · 20 GiB.
 - [ ] Pulsa **Lanzar instancia** → **Ver todas las instancias**.
