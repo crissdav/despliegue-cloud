@@ -8,7 +8,43 @@
 | **Región** | `us-east-1` (N. Virginia); zonas `us-east-1a` y `us-east-1b` |
 | **Duración estimada** | Unas **2 h 30 min** de despliegue, más **1 h** de laboratorio de fallas |
 | **Costo esperado** | USD 0 dentro del Free Tier, si se borran los recursos al terminar (fase 10) |
+| **Forma de despliegue** | **Docker Compose en el EC2**: el servidor clona el repo y construye las imágenes con `docker compose up -d --build` (sin ECR) |
 | **Guía de pasos (clics y comandos)** | [DESPLIEGUE.md](DESPLIEGUE.md). Este plan indica el orden, los controles y las evidencias; la guía, el detalle de cada paso |
+
+---
+
+## 0. Qué vamos a construir
+
+### Infraestructura en AWS
+
+![Infraestructura en AWS](img/infraestructura-aws.jpg)
+
+| Recurso | Configuración | Fase |
+|---|---|---|
+| VPC `diario-vpc` | `10.0.0.0/16`, 2 zonas, Internet Gateway, sin NAT Gateway | 1 |
+| Subredes públicas | `10.0.1.0/24` (EC2), `10.0.2.0/24` (reserva) · ruta `0.0.0.0/0 → IGW` | 1 |
+| Subredes privadas | `10.0.11.0/24` (RDS), `10.0.12.0/24` (subnet group) · solo ruta `local` | 1 |
+| `diario-web-sg` | 22 ← tu IP · 80 ← `0.0.0.0/0` | 2 |
+| `diario-db-sg` | 3306 ← `diario-web-sg` | 2 |
+| RDS `diario-db` | MySQL 8, db.t3.micro, 20 GiB, **Public access: No** | 3 |
+| EC2 `diario-ec2` | t3.micro, Amazon Linux 2023, subred pública A, *User data* = `instalar-docker.sh` | 4 |
+
+### Docker dentro del EC2
+
+![Docker en el EC2](img/docker-en-ec2.jpg)
+
+| Pieza | Qué es | Quién la crea |
+|---|---|---|
+| Docker Engine + Compose + Buildx + swap de 1 GB | Software del servidor | El script de *User data* (fase 4), solo, en el primer arranque |
+| `~/despliegue-cloud` | El código clonado desde GitHub | Tú, con `git clone` (fase 7) |
+| `.env` | Credenciales de RDS. **No está en git**, `chmod 600` | Tú, con `nano` (fase 7) |
+| Imagen `diario-web` | Build *multi-stage*: Node compila React → Nginx 1.27 lo sirve | `docker compose up -d --build` (fase 7) |
+| Imagen `diario-api` | Node 22 + Express, usuario `node` | `docker compose up -d --build` (fase 7) |
+| Contenedor `diario-web` | Nginx en el **puerto 80** (el único publicado); reenvía `/api/*` a `api:3000` | Compose |
+| Contenedor `diario-api` | Express en el **3000, solo red interna**; se conecta a RDS con `.env` | Compose |
+| Red interna de Docker | Los contenedores se encuentran por nombre (`web`, `api`) | Compose |
+
+Solo se usa `docker-compose.yml`. El archivo `docker-compose.local.yml` es exclusivo de tu PC, porque agrega un MySQL falso.
 
 ---
 
@@ -256,6 +292,14 @@ chmod 600 .env
 docker compose up -d --build  # 3 a 5 min la primera vez (compila React)
 ```
 
+**Qué hace `docker compose up -d --build`** (ver el [diagrama de Docker](img/docker-en-ec2.jpg)):
+1. Descarga de Docker Hub las imágenes base `node:22-alpine` y `nginx:1.27-alpine`.
+2. Construye `diario-api` con `api/Dockerfile`: `npm ci --omit=dev`, copia `src/` y ejecuta con el usuario `node`.
+3. Construye `diario-web` con `web/Dockerfile`: **etapa 1**, `npm ci` + `vite build` → `dist/`; **etapa 2**, Nginx + `nginx.conf` + `dist/`.
+4. Crea la red interna de Docker y arranca `diario-api`, que lee `.env` y se conecta a RDS creando la tabla si no existe.
+5. Arranca `diario-web` y publica el puerto **80** del EC2.
+6. Deja ambos con `restart: unless-stopped`, así vuelven solos después de un reinicio.
+
 **Control de salida:**
 ```bash
 docker compose ps                        # diario-web y diario-api: Up (healthy)
@@ -342,11 +386,14 @@ Documenta cada una con la [plantilla de incidente](SOLUCION-DE-ERRORES.md#5-plan
 | Punto de la práctica | Fases | Evidencias (capturas) |
 |---|---|---|
 | **1.** EC2, acceso SSH y reglas del Security Group | 1, 2, 4, 5 | *Resource map* de la VPC · tablas de rutas · *Inbound rules* de los 2 SG · instancia *Running* 2/2 · terminal SSH conectada |
-| **2.** App web con Docker, accesible desde el navegador | 5, 7, 8 | `docker compose ps` (healthy) · `docker compose logs` · la app en el navegador del PC y del celular |
+| **2.** App web con Docker, accesible desde el navegador | 5, 7, 8 | `docker compose ps` (healthy) · `docker images` (`diario-web`, `diario-api`) · `docker compose logs` · la app en el navegador del PC y del celular |
 | **3.** MySQL en RDS conectado desde el EC2 | 3, 6, 7, 8 | RDS *Available* con *Public access: No* · `getent`/`nc`/`mysql` desde el EC2 · `/api/health` con `"db":"ok"` · consulta SQL con tus datos |
 | **4.** Diagnóstico y solución de fallas | 9 | Por cada falla: síntoma, comando de diagnóstico con su salida, solución y prueba de que funciona |
 
 **Consejo:** nombra las capturas con la fase y un número (`F6-1-nc-rds.png`) para armar el informe rápido.
+
+**Diagramas para el informe:** incluye [img/infraestructura-aws.jpg](img/infraestructura-aws.jpg) en la sección de arquitectura
+(puntos 1 y 3) y [img/docker-en-ec2.jpg](img/docker-en-ec2.jpg) en la sección de despliegue con Docker (punto 2).
 
 ---
 
