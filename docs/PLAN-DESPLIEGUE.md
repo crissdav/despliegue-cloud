@@ -68,6 +68,9 @@ Complétala a medida que avanzas. Muchos pasos necesitan un valor de una fase an
 > **Marcadores en los comandos:** `<IP_EC2>`, `<ENDPOINT_RDS>`, etc. indican dónde va un valor de esta hoja.
 > Se reemplazan **completos, sin los signos `< >`**.
 > Por ejemplo, `ubuntu@<IP_EC2>` se escribe `ubuntu@3.144.28.205`.
+> `<ENDPOINT_RDS>` siempre es el endpoint **completo**, por ejemplo `diario-db.clig6aq8irnh.us-east-2.rds.amazonaws.com`.
+> El código del medio (`clig6aq8irnh`) solo no sirve.
+> Si guardaste el endpoint en la variable `RDS=…` (fase 6), puedes usar `$RDS`. La variable se pierde al cerrar la sesión SSH.
 
 | Dato | Se obtiene en | Valor |
 |---|---|---|
@@ -79,7 +82,7 @@ Complétala a medida que avanzas. Muchos pasos necesitan un valor de una fase an
 | SG web (`sg-…`) | Fase 2 | |
 | SG db (`sg-…`) | Fase 2 | |
 | Ruta del archivo `diario-key.pem` | Fase 4 | `C:\claves-aws\diario-key.pem` |
-| Endpoint de RDS | Fase 3 | |
+| Endpoint de RDS **completo** (`diario-db.<código>.us-east-2.rds.amazonaws.com`, no solo el código del medio) | Fase 3 | |
 | Sistema operativo y usuario SSH (`ec2-user` o `ubuntu`) | Fase 4 | |
 | Instance ID (`i-…`) | Fase 4 | |
 | IP pública del EC2 | Fase 4 | |
