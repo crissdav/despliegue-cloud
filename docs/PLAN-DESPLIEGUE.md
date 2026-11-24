@@ -74,7 +74,7 @@ Complétala a medida que avanzas. Muchos pasos necesitan un valor de una fase an
 | Subredes privadas A y B | Fase 1 | |
 | SG web (`sg-…`) | Fase 2 | |
 | SG db (`sg-…`) | Fase 2 | |
-| Ruta del archivo `diario-key.pem` | Fase 2 | |
+| Ruta del archivo `diario-key.pem` | Fase 4 | |
 | Endpoint de RDS | Fase 3 | |
 | Instance ID (`i-…`) | Fase 4 | |
 | IP pública del EC2 | Fase 4 | |
@@ -86,9 +86,9 @@ Complétala a medida que avanzas. Muchos pasos necesitan un valor de una fase an
 ```mermaid
 flowchart LR
     F0[0. Preparación] --> F1[1. Red VPC]
-    F1 --> F2[2. Security Groups + llave]
+    F1 --> F2[2. Security Groups]
     F2 --> F3[3. RDS · lanzar]
-    F2 --> F4[4. EC2]
+    F2 --> F4[4. Llave SSH + EC2]
     F3 -. "5-10 min de espera" .-> F6
     F4 --> F5[5. Preparar servidor]
     F5 --> F6[6. Probar EC2 → RDS]
@@ -105,9 +105,9 @@ y mientras se crea, avanza con las fases 4 y 5. Cuando llegues a la fase 6, la b
 |---|---|---|
 | 0. Preparación de la cuenta | 15 min | 0:15 |
 | 1. Red | 20 min | 0:35 |
-| 2. Security Groups + llave | 15 min | 0:50 |
-| 3. RDS (lanzar; se crea en paralelo) | 10 min | 1:00 |
-| 4. EC2 | 10 min | 1:10 |
+| 2. Security Groups | 10 min | 0:45 |
+| 3. RDS (lanzar; se crea en paralelo) | 10 min | 0:55 |
+| 4. Par de claves + EC2 | 15 min | 1:10 |
 | 5. Preparar el servidor | 20 min | 1:30 |
 | 6. Conectividad EC2 → RDS | 10 min | 1:40 |
 | 7. Desplegar la aplicación | 20 min | 2:00 |
@@ -162,24 +162,22 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
 
 ---
 
-### Fase 2: Security Groups y llave SSH (15 min) · [guía §2 y §3](DESPLIEGUE.md#2-security-groups-firewalls)
+### Fase 2: Security Groups (10 min) · [guía §2](DESPLIEGUE.md#2-security-groups-firewalls)
 
-**Objetivo:** firewalls de la web y de la BD, y la llave para entrar al servidor.
+**Objetivo:** los firewalls de la web y de la base de datos.
 
-- [ ] `diario-web-sg` en **`diario-vpc`**: entrada SSH 22 desde **My IP** y HTTP 80 desde `0.0.0.0/0`.
-- [ ] `diario-db-sg` en **`diario-vpc`**: entrada MySQL 3306 con origen **`diario-web-sg`**.
-- [ ] Key pair `diario-key` (RSA, `.pem`) → muévelo a `C:\Users\<tu-usuario>\.ssh\`.
-- [ ] Ajusta los permisos del `.pem` en Windows:
-  ```powershell
-  icacls "$env:USERPROFILE\.ssh\diario-key.pem" /inheritance:r /grant:r "$($env:USERNAME):(R)"
-  ```
+- [ ] `diario-web-sg` en **`diario-vpc`**: entrada SSH 22 desde **Mi IP** y HTTP 80 desde `0.0.0.0/0`.
+- [ ] `diario-db-sg` en **`diario-vpc`**: entrada MySQL/Aurora 3306 con origen **`diario-web-sg`**.
+- [ ] **Reglas de salida:** no agregues ni borres nada. Deja la que viene por defecto (*Todo el tráfico → `0.0.0.0/0`*):
+      el EC2 la necesita para instalar Docker, clonar el repo, descargar imágenes y llegar a RDS.
 
 **Control de salida:**
-- [ ] Ningún SG tiene el 3306 ni el 22 abiertos a `0.0.0.0/0`.
+- [ ] Ningún SG tiene el 3306 ni el 22 abiertos a `0.0.0.0/0` en las reglas de **entrada**.
 - [ ] El origen de la regla 3306 es un **sg-…**, no una IP.
-- [ ] Ambos SG están en `diario-vpc` (columna *VPC ID*).
+- [ ] Ambos SG están en `diario-vpc` (columna *ID de VPC*).
+- [ ] Ambos SG conservan la regla de salida por defecto.
 
-**Evidencias:** captura de las *Inbound rules* de ambos SG.
+**Evidencias:** captura de las *Reglas de entrada* de ambos SG.
 
 ---
 
@@ -205,21 +203,42 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
 
 ---
 
-### Fase 4: Servidor EC2 (10 min) · [guía §4](DESPLIEGUE.md#4-instancia-ec2)
+### Fase 4: Par de claves y servidor EC2 (15 min) · [guía §3 y §4](DESPLIEGUE.md#3-par-de-llaves-ssh)
 
-**Objetivo:** instancia Amazon Linux 2023 en la subred pública, con Docker ya instalado por *User data*.
+**Objetivo:** crear la llave SSH y lanzar la instancia Amazon Linux 2023 en la subred pública, con Docker ya instalado por *User data*.
 
-- [ ] *Launch instance*: `diario-ec2` · Amazon Linux 2023 (x86) · **t3.micro** · key `diario-key`.
+#### Paso 1: Par de claves SSH
+
+Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
+
+1. [ ] Consola → **EC2 → Red y seguridad → Pares de claves → Crear par de claves**.
+2. [ ] Nombre: `diario-key` · Tipo: **RSA** · Formato: **.pem** (no `.ppk`, que es para PuTTY) → **Crear par de claves**.
+3. [ ] El navegador descarga `diario-key.pem`, normalmente en **Descargas**.
+   > ⚠️ AWS **solo permite descargarlo una vez**. Si se pierde, hay que crear otro par de claves.
+4. [ ] Muévelo a `.ssh` y deja que solo tu usuario pueda leerlo, desde PowerShell:
+   ```powershell
+   New-Item -ItemType Directory -Force "$env:USERPROFILE\.ssh" | Out-Null
+   Move-Item "$env:USERPROFILE\Downloads\diario-key.pem" "$env:USERPROFILE\.ssh\diario-key.pem"
+   icacls "$env:USERPROFILE\.ssh\diario-key.pem" /inheritance:r /grant:r "$($env:USERNAME):(R)"
+   icacls "$env:USERPROFILE\.ssh\diario-key.pem"     # debe mostrar un solo permiso: TU-PC\tu-usuario:(R)
+   ```
+   Si `Move-Item` no encuentra el archivo, búscalo en el Explorador y ajusta la ruta.
+   Sin el `icacls`, SSH rechaza la llave con `UNPROTECTED PRIVATE KEY FILE` en la fase 5.
+
+#### Paso 2: Lanzar el EC2
+
+- [ ] *Lanzar instancia*: `diario-ec2` · Amazon Linux 2023 (x86) · **t3.micro** · par de claves **`diario-key`** (el del paso 1).
 - [ ] Red: VPC `diario-vpc` · subred **public1 (us-east-1a)** · *Auto-assign public IP: Enable* · SG `diario-web-sg`.
 - [ ] Disco: 8 GiB gp3. Si quieres más margen para las imágenes Docker, usa hasta 30 GiB, que siguen dentro del Free Tier.
 - [ ] *Advanced details → User data*: pega el contenido de [`scripts/instalar-docker.sh`](../scripts/instalar-docker.sh).
 - [ ] *Launch*.
 
 **Control de salida:**
+- [ ] El archivo está en `C:\Users\<tu-usuario>\.ssh\diario-key.pem`, con un solo permiso de lectura.
 - [ ] *Instance state*: **Running** · *Status checks*: **2/2 passed** (2 a 4 minutos).
-- [ ] Tiene **Public IPv4** y está en la subred pública. Anótala.
+- [ ] Tiene **Public IPv4**, está en la subred pública y usa el par de claves `diario-key`. Anota la IP.
 
-**Evidencias:** captura de *Details* y *Networking* de la instancia.
+**Evidencias:** captura de la lista de *Pares de claves* y de *Detalles* y *Redes* de la instancia. No captures el contenido del `.pem`.
 
 ---
 
