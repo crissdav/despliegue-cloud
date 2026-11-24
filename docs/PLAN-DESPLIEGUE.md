@@ -187,12 +187,16 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
 
 - [ ] RDS → *Grupos de subredes* → *Crear*: nombre `diario-db-subnets` · VPC `diario-vpc` · zonas `us-east-2a` y `us-east-2b` · subredes **solo las privadas**: `diario-subnet-private1-us-east-2a` (`10.0.128.0/20`) y `diario-subnet-private2-us-east-2b` (`10.0.144.0/20`). El aviso de "3 subredes en 3 zonas" es para clústeres Multi-AZ: ignóralo.
 - [ ] Revisa la lista de **Bases de datos**: si ya existe alguna que no uses (de pruebas anteriores), bórrala. Consume horas del Free Tier.
-- [ ] *Crear base de datos* → **Configuración completa**, para crearla desde cero.
+- [ ] Botón **Crear base de datos** → en el menú desplegable elige **Configuración completa**, para crearla desde cero.
       No uses *Configuración exprés*: aplica valores por defecto y no deja elegir el grupo de subredes, el acceso público ni el SG.
       *Restaurar desde S3* es para importar un respaldo existente.
+- [ ] En la página siguiente, **Elegir un método de creación de base de datos** → deja marcada **Configuración completa**,
+      no *Creación sencilla*, que tiene el mismo problema que la exprés.
+- [ ] Baja por la página y completa cada sección en este orden:
 
 | Sección de la consola | Valor |
 |---|---|
+| Elegir un método de creación de base de datos | **Configuración completa** |
 | Opciones del motor | **MySQL** (versión por defecto) |
 | Plantillas | **Capa gratuita** (o *Sandbox*) |
 | Identificador de la instancia de base de datos | `diario-db` |
@@ -206,10 +210,11 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
 | **Acceso público** | **No** |
 | Grupo de seguridad de VPC | **Elegir existente** → quita `default`, deja **solo** `diario-db-sg` |
 | Zona de disponibilidad | `us-east-2a` |
-| Configuración adicional → Nombre de base de datos inicial | `diario` |
+| Configuración adicional (al final, plegada) → Nombre de base de datos inicial | `diario` |
 | Copia de seguridad | retención de 1 día |
 | Monitorización mejorada | desactivada |
 
+- [ ] Antes de crear, revisa el cuadro **Costos mensuales estimados** al final de la página: con la plantilla *Capa gratuita* debe indicar que estás dentro del Free Tier.
 - [ ] Pulsa **Crear base de datos** y **continúa con la fase 4** sin esperar.
 
 **Control de salida** (compruébalo al empezar la fase 6):
