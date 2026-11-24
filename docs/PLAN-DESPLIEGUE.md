@@ -5,7 +5,7 @@
 | **Objetivo** | Dejar la aplicación funcionando en `http://<IP-pública-EC2>` con la arquitectura de [ARQUITECTURA.md](ARQUITECTURA.md), y cumplir los 4 puntos de la práctica con evidencias |
 | **Qué se despliega** | `diario-web` (Nginx + React) y `diario-api` (Express) en un EC2, más la base MySQL en RDS, dentro de una VPC propia |
 | **Repositorio** | <https://github.com/crissdav/despliegue-cloud> (público, rama `main`) |
-| **Región** | `us-east-1` (N. Virginia); zonas `us-east-1a` y `us-east-1b` |
+| **Región** | `us-east-2` (Ohio); zonas `us-east-2a` y `us-east-2b` |
 | **Duración estimada** | Unas **2 h 30 min** de despliegue, más **1 h** de laboratorio de fallas |
 | **Costo esperado** | USD 0 dentro del Free Tier, si se borran los recursos al terminar (fase 10) |
 | **Forma de despliegue** | **Docker Compose en el EC2**: el servidor clona el repo y construye las imágenes con `docker compose up -d --build` (sin ECR) |
@@ -22,8 +22,8 @@
 | Recurso | Configuración | Fase |
 |---|---|---|
 | VPC `diario-vpc` | `10.0.0.0/16`, 2 zonas, Internet Gateway, sin NAT Gateway | 1 |
-| Subredes públicas | `10.0.1.0/24` (EC2), `10.0.2.0/24` (reserva) · ruta `0.0.0.0/0 → IGW` | 1 |
-| Subredes privadas | `10.0.11.0/24` (RDS), `10.0.12.0/24` (subnet group) · solo ruta `local` | 1 |
+| Subredes públicas | `10.0.0.0/20` (EC2), `10.0.16.0/20` (reserva) · ruta `0.0.0.0/0 → IGW` | 1 |
+| Subredes privadas | `10.0.128.0/20` (RDS), `10.0.144.0/20` (subnet group) · solo ruta `local` | 1 |
 | `diario-web-sg` | 22 ← tu IP · 80 ← `0.0.0.0/0` | 2 |
 | `diario-db-sg` | 3306 ← `diario-web-sg` | 2 |
 | RDS `diario-db` | MySQL 8, db.t3.micro, 20 GiB, **Public access: No** | 3 |
@@ -129,7 +129,7 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
 
 **Objetivo:** cuenta segura, región correcta y control de costos activo antes de crear nada.
 
-- [ ] Inicia sesión en la consola y elige la región **US East (N. Virginia) `us-east-1`** (arriba a la derecha).
+- [ ] Inicia sesión en la consola y elige la región **US East (Ohio) `us-east-2`** (arriba a la derecha).
 - [ ] Activa **MFA** en el usuario raíz (*Security credentials → Assign MFA*), si aún no está activo.
 - [ ] Crea una alerta de costos: **Billing → Budgets → Create budget → Zero spend budget** (te avisa por correo con el primer centavo).
 - [ ] Revisa **Billing → Free Tier**: confirma qué servicios y horas tienes disponibles.
@@ -137,7 +137,7 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
 - [ ] Define la **contraseña de la BD** (8 o más caracteres, sin `/ " @` ni espacios).
 - [ ] Crea la carpeta para la llave: `C:\Users\<tu-usuario>\.ssh\`.
 
-**Control de salida:** la región es `us-east-1`, el presupuesto está creado y tu IP está anotada.
+**Control de salida:** la región es `us-east-2`, el presupuesto está creado y tu IP está anotada.
 
 ---
 
@@ -146,7 +146,7 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
 **Objetivo:** VPC `10.0.0.0/16` con 2 subredes públicas, 2 privadas, Internet Gateway y tablas de rutas.
 
 - [ ] VPC → *Create VPC* → **VPC and more**, con nombre `diario`.
-- [ ] 2 zonas · 2 públicas · 2 privadas · CIDR `10.0.1.0/24`, `10.0.2.0/24`, `10.0.11.0/24`, `10.0.12.0/24`.
+- [ ] 2 zonas · 2 públicas · 2 privadas · deja los **CIDR por defecto**: públicas `10.0.0.0/20` y `10.0.16.0/20`, privadas `10.0.128.0/20` y `10.0.144.0/20`.
 - [ ] **NAT gateways: None** · **VPC endpoints: None** · DNS hostnames y DNS resolution activados.
 - [ ] Activa *auto-assign public IPv4* en las 2 subredes públicas.
 
@@ -185,10 +185,10 @@ difíciles de encontrar vienen de saltarse un control y descubrir el error dos f
 
 **Objetivo:** MySQL en las subredes privadas, sin acceso público.
 
-- [ ] RDS → *Subnet groups* → `diario-db-subnets` con **solo** las subredes privadas A y B.
+- [ ] RDS → *Grupos de subredes* → *Crear*: nombre `diario-db-subnets` · VPC `diario-vpc` · zonas `us-east-2a` y `us-east-2b` · subredes **solo las privadas**: `diario-subnet-private1-us-east-2a` (`10.0.128.0/20`) y `diario-subnet-private2-us-east-2b` (`10.0.144.0/20`). El aviso de "3 subredes en 3 zonas" es para clústeres Multi-AZ: ignóralo.
 - [ ] RDS → *Create database*: MySQL · plantilla Free tier · `diario-db` · usuario `admin`.
 - [ ] `db.t3.micro` · 20 GiB · *autoscaling* desactivado.
-- [ ] VPC `diario-vpc` · subnet group `diario-db-subnets` · **Public access: No** · SG **solo** `diario-db-sg` · AZ `us-east-1a`.
+- [ ] VPC `diario-vpc` · subnet group `diario-db-subnets` · **Public access: No** · SG **solo** `diario-db-sg` · AZ `us-east-2a`.
 - [ ] *Initial database name*: `diario` · backups de 1 día · *Enhanced monitoring* desactivado.
 - [ ] Pulsa **Create** y **continúa con la fase 4** sin esperar.
 
@@ -228,7 +228,7 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 #### Paso 2: Lanzar el EC2
 
 - [ ] *Lanzar instancia*: `diario-ec2` · Amazon Linux 2023 (x86) · **t3.micro** · par de claves **`diario-key`** (el del paso 1).
-- [ ] Red: VPC `diario-vpc` · subred **public1 (us-east-1a)** · *Auto-assign public IP: Enable* · SG `diario-web-sg`.
+- [ ] Red: VPC `diario-vpc` · subred **public1 (us-east-2a)** · *Auto-assign public IP: Enable* · SG `diario-web-sg`.
 - [ ] Disco: 8 GiB gp3. Si quieres más margen para las imágenes Docker, usa hasta 30 GiB, que siguen dentro del Free Tier.
 - [ ] *Advanced details → User data*: pega el contenido de [`scripts/instalar-docker.sh`](../scripts/instalar-docker.sh).
 - [ ] *Launch*.
@@ -277,8 +277,8 @@ Va primero porque al lanzar el EC2 hay que elegirla en el campo *Par de claves*.
 **Objetivo:** demostrar que la red y las credenciales funcionan **antes** de desplegar el código. Es el control más importante.
 
 ```bash
-getent hosts <ENDPOINT_RDS>                 # 1. DNS: debe devolver 10.0.11.x (IP privada)
-nc -zv <ENDPOINT_RDS> 3306                  # 2. Red/SG: "Connected to 10.0.11.x:3306"
+getent hosts <ENDPOINT_RDS>                 # 1. DNS: debe devolver 10.0.128.x–10.0.143.x (IP privada)
+nc -zv <ENDPOINT_RDS> 3306                  # 2. Red/SG: "Connected to 10.0.x.x:3306" (IP privada)
 mysql -h <ENDPOINT_RDS> -u admin -p -e "SELECT VERSION(); SHOW DATABASES;"   # 3. Credenciales
 ```
 

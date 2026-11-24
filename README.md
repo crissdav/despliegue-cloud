@@ -12,7 +12,7 @@ Ambos corren en **contenedores Docker** dentro de una instancia **EC2**, y los d
 | Backend | Node.js 22 + Express 4 (API REST en JSON) + mysql2 |
 | Base de datos | MySQL 8 en Amazon RDS (en local: contenedor MySQL 8.4) |
 | Contenedores | Docker + Docker Compose (2 contenedores: `diario-web` y `diario-api`) |
-| Infraestructura | AWS `us-east-1`: VPC, subredes públicas y privadas, Internet Gateway, Security Groups, EC2 t3.micro (Amazon Linux 2023), RDS db.t3.micro |
+| Infraestructura | AWS `us-east-2`: VPC, subredes públicas y privadas, Internet Gateway, Security Groups, EC2 t3.micro (Amazon Linux 2023), RDS db.t3.micro |
 
 ## Objetivos de la práctica
 
@@ -132,8 +132,8 @@ docker compose down
 Empieza por el **[plan de despliegue](docs/PLAN-DESPLIEGUE.md)**, que da el orden, los tiempos, los controles y las evidencias de cada fase.
 El detalle de cada clic y comando está en **[docs/DESPLIEGUE.md](docs/DESPLIEGUE.md)**.
 
-**En la consola de AWS** (región `us-east-1`):
-1. **Red:** *VPC and more* → `10.0.0.0/16`, 2 subredes públicas (`10.0.1.0/24`, `10.0.2.0/24`), 2 privadas (`10.0.11.0/24`, `10.0.12.0/24`), **sin NAT Gateway**.
+**En la consola de AWS** (región `us-east-2`):
+1. **Red:** *VPC and more* → `10.0.0.0/16`, 2 subredes públicas (`10.0.0.0/20`, `10.0.16.0/20`), 2 privadas (`10.0.128.0/20`, `10.0.144.0/20`), **sin NAT Gateway**.
 2. **Security Groups:** `diario-web-sg` (22 desde tu IP, 80 desde todos) y `diario-db-sg` (3306 solo desde `diario-web-sg`).
 3. **Key pair** `diario-key` (`.pem`).
 4. **RDS:** subnet group con las subredes privadas → MySQL `db.t3.micro`, **Public access: No**, SG `diario-db-sg`, base `diario`.

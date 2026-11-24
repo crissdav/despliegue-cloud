@@ -6,7 +6,7 @@
 | **Modelo** | Una instancia EC2 con 2 contenedores Docker (**Nginx** + **API**) y una base de datos administrada RDS MySQL |
 | **Red** | VPC propia `10.0.0.0/16` con subredes **públicas** (web) y **privadas** (base de datos) en 2 zonas de disponibilidad |
 | **Despliegue** | Código en GitHub → `git pull` en el EC2 → `docker compose up -d --build` |
-| **Región** | `us-east-1` (N. Virginia); zonas `us-east-1a` y `us-east-1b` |
+| **Región** | `us-east-2` (Ohio); zonas `us-east-2a` y `us-east-2b` |
 | **Costo objetivo** | Dentro de la capa gratuita (Free Tier) |
 
 ---
@@ -19,12 +19,12 @@ flowchart TB
     A["🧑‍💻 Administrador<br/>(tu PC)"]
     GH["GitHub<br/>repositorio del código"]
 
-    subgraph AWS["☁️ AWS · us-east-1"]
+    subgraph AWS["☁️ AWS · us-east-2"]
       subgraph VPC["VPC diario-vpc · 10.0.0.0/16"]
         IGW["Internet Gateway<br/>diario-igw"]
 
-        subgraph AZA["Zona us-east-1a"]
-          subgraph PUBA["Subred pública A · 10.0.1.0/24"]
+        subgraph AZA["Zona us-east-2a"]
+          subgraph PUBA["Subred pública A · 10.0.0.0/20"]
             subgraph SGW["SG diario-web-sg"]
               subgraph EC2["EC2 t3.micro · Amazon Linux 2023 · Docker"]
                 WEB["diario-web<br/>Nginx :80<br/>React compilado"]
@@ -33,16 +33,16 @@ flowchart TB
               end
             end
           end
-          subgraph PRIVA["Subred privada A · 10.0.11.0/24"]
+          subgraph PRIVA["Subred privada A · 10.0.128.0/20"]
             subgraph SGD["SG diario-db-sg"]
               RDS[("RDS MySQL 8<br/>db.t3.micro<br/>base: diario")]
             end
           end
         end
 
-        subgraph AZB["Zona us-east-1b"]
-          PUBB["Subred pública B · 10.0.2.0/24<br/>(reserva para crecer)"]
-          PRIVB["Subred privada B · 10.0.12.0/24<br/>(requerida por el DB subnet group)"]
+        subgraph AZB["Zona us-east-2b"]
+          PUBB["Subred pública B · 10.0.16.0/20<br/>(reserva para crecer)"]
+          PRIVB["Subred privada B · 10.0.144.0/20<br/>(requerida por el DB subnet group)"]
         end
       end
     end
@@ -64,9 +64,9 @@ Versión en texto, por si el visor no muestra Mermaid:
 ┌─────────────────────────── VPC diario-vpc 10.0.0.0/16 ───────────────────────────┐
 │                         [ Internet Gateway diario-igw ]                           │
 │                                      │                                            │
-│   Zona us-east-1a                    │                 Zona us-east-1b            │
-│  ┌─ Subred pública A 10.0.1.0/24 ────▼──────────┐   ┌─ Subred pública B ────────┐ │
-│  │  [SG diario-web-sg]                          │   │  10.0.2.0/24 (reserva)    │ │
+│   Zona us-east-2a                    │                 Zona us-east-2b            │
+│  ┌─ Subred pública A 10.0.0.0/20 ────▼──────────┐   ┌─ Subred pública B ────────┐ │
+│  │  [SG diario-web-sg]                          │   │  10.0.16.0/20 (reserva)    │ │
 │  │  EC2 t3.micro · Docker                       │   └───────────────────────────┘ │
 │  │   :80 ▶ [diario-web] Nginx + React           │                                 │
 │  │            │ /api/*                          │                                 │
@@ -74,8 +74,8 @@ Versión en texto, por si el visor no muestra Mermaid:
 │  │         [diario-api] Express :3000           │                                 │
 │  └──────────────────────┬───────────────────────┘                                 │
 │                         │ MySQL :3306                                             │
-│  ┌─ Subred privada A 10.0.11.0/24 ──▼───────────┐   ┌─ Subred privada B ────────┐ │
-│  │  [SG diario-db-sg]                           │   │  10.0.12.0/24             │ │
+│  ┌─ Subred privada A 10.0.128.0/20 ──▼───────────┐   ┌─ Subred privada B ────────┐ │
+│  │  [SG diario-db-sg]                           │   │  10.0.144.0/20             │ │
 │  │  RDS MySQL db.t3.micro · sin acceso público  │   │  (DB subnet group)        │ │
 │  └──────────────────────────────────────────────┘   └───────────────────────────┘ │
 │  Tabla de rutas pública:  10.0.0.0/16 → local   ·   0.0.0.0/0 → diario-igw        │
@@ -91,10 +91,10 @@ Versión en texto, por si el visor no muestra Mermaid:
 |---|---|---|---|---|
 | Red | VPC | `diario-vpc` | `10.0.0.0/16`, DNS resolution y DNS hostnames activados | Red privada y aislada del proyecto |
 | Red | Internet Gateway | `diario-igw` | Conectado a `diario-vpc` | Puerta entre la VPC e internet |
-| Red | Subred pública A | `diario-public-a` | `10.0.1.0/24`, `us-east-1a`, asigna IP pública automáticamente | Aloja el EC2 |
-| Red | Subred pública B | `diario-public-b` | `10.0.2.0/24`, `us-east-1b` | Reserva para un segundo EC2 o un balanceador (ALB) |
-| Red | Subred privada A | `diario-private-a` | `10.0.11.0/24`, `us-east-1a` | Aloja RDS |
-| Red | Subred privada B | `diario-private-b` | `10.0.12.0/24`, `us-east-1b` | RDS exige subredes en ≥ 2 zonas |
+| Red | Subred pública A | `diario-public-a` | `10.0.0.0/20`, `us-east-2a`, asigna IP pública automáticamente | Aloja el EC2 |
+| Red | Subred pública B | `diario-public-b` | `10.0.16.0/20`, `us-east-2b` | Reserva para un segundo EC2 o un balanceador (ALB) |
+| Red | Subred privada A | `diario-private-a` | `10.0.128.0/20`, `us-east-2a` | Aloja RDS |
+| Red | Subred privada B | `diario-private-b` | `10.0.144.0/20`, `us-east-2b` | RDS exige subredes en ≥ 2 zonas |
 | Red | Tabla de rutas | `diario-rt-public` | `0.0.0.0/0 → diario-igw`; asociada a las subredes públicas | Les da salida a internet a las subredes públicas |
 | Red | Tabla de rutas | `diario-rt-private` | Solo la ruta `local`; asociada a las subredes privadas | Deja a las subredes privadas sin internet |
 | Seguridad | Security Group | `diario-web-sg` | Entrada: 22 desde tu IP, 80 desde `0.0.0.0/0` | Firewall del EC2 |
@@ -114,10 +114,10 @@ Versión en texto, por si el visor no muestra Mermaid:
 | Red | CIDR | Direcciones | Uso |
 |---|---|---|---|
 | VPC | `10.0.0.0/16` | 65 536 | Todo el proyecto |
-| Pública A | `10.0.1.0/24` | 251 utilizables* | EC2 |
-| Pública B | `10.0.2.0/24` | 251 utilizables* | Crecimiento futuro |
-| Privada A | `10.0.11.0/24` | 251 utilizables* | RDS (instancia principal) |
-| Privada B | `10.0.12.0/24` | 251 utilizables* | RDS (requisito del subnet group / futuro Multi-AZ) |
+| Pública A | `10.0.0.0/20` | 4 091 utilizables* | EC2 |
+| Pública B | `10.0.16.0/20` | 4 091 utilizables* | Crecimiento futuro |
+| Privada A | `10.0.128.0/20` | 4 091 utilizables* | RDS (instancia principal) |
+| Privada B | `10.0.144.0/20` | 4 091 utilizables* | RDS (requisito del subnet group / futuro Multi-AZ) |
 
 \* AWS reserva 5 direcciones por subred: la de red, la `.1` del router, la `.2` del DNS, la `.3` reservada y la de broadcast.
 
@@ -254,7 +254,7 @@ El detalle de diagnóstico está en [SOLUCION-DE-ERRORES.md](SOLUCION-DE-ERRORES
 | Limitación | Impacto | Cómo se resolvería |
 |---|---|---|
 | Un solo EC2 | Si el EC2 se cae, la web se cae | ALB + Auto Scaling con 2 instancias (en las subredes públicas A y B) |
-| RDS Single-AZ | Si falla la AZ `us-east-1a`, se pierde el servicio de la base | Activar *Multi-AZ*: la subred privada B ya está lista |
+| RDS Single-AZ | Si falla la AZ `us-east-2a`, se pierde el servicio de la base | Activar *Multi-AZ*: la subred privada B ya está lista |
 | IP pública dinámica | Cambia al detener e iniciar el EC2 | Elastic IP o un dominio en Route 53 |
 | Solo HTTP | Lo que viaja por la red no va cifrado | Dominio + certificado (ACM en un ALB, o Let's Encrypt en el EC2) |
 | Secretos en un archivo | Quien entre al EC2 puede leerlos | Secrets Manager o SSM Parameter Store, con un IAM Role |
@@ -271,7 +271,7 @@ Internet → ALB (subredes públicas A+B) → Auto Scaling 2× EC2 → RDS Multi
 
 ## 9. Costos estimados
 
-| Recurso | Free Tier | Fuera del Free Tier (aprox., us-east-1) |
+| Recurso | Free Tier | Fuera del Free Tier (aprox., us-east-2) |
 |---|---|---|
 | EC2 t3.micro | 750 h/mes | ~USD 7.6/mes |
 | EBS 8 GiB gp3 | 30 GiB/mes | ~USD 0.64/mes |

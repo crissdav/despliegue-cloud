@@ -7,7 +7,7 @@ Cada paso tiene dos caminos:
 - **⌨️ CLI**: los mismos pasos con comandos. Puedes ejecutarlos en **AWS CloudShell**
   (ícono `>_` arriba a la derecha en la consola de AWS), que ya trae la CLI configurada.
 
-> **Región:** usa siempre la misma región en todos los pasos (en esta guía: `us-east-1`, N. Virginia).
+> **Región:** usa siempre la misma región en todos los pasos (en esta guía: `us-east-2`, Ohio).
 > Arriba a la derecha de la consola puedes cambiarla.
 
 ## Índice
@@ -64,8 +64,8 @@ Lo que vamos a construir (ver [ARQUITECTURA.md §3](ARQUITECTURA.md#3-plan-de-di
 | Recurso | Valor |
 |---|---|
 | VPC | `10.0.0.0/16` |
-| Subredes públicas | `10.0.1.0/24` (us-east-1a), `10.0.2.0/24` (us-east-1b) |
-| Subredes privadas | `10.0.11.0/24` (us-east-1a), `10.0.12.0/24` (us-east-1b) |
+| Subredes públicas | `10.0.0.0/20` (us-east-2a), `10.0.16.0/20` (us-east-2b) |
+| Subredes privadas | `10.0.128.0/20` (us-east-2a), `10.0.144.0/20` (us-east-2b) |
 | Internet Gateway | conectado a la VPC |
 | Rutas públicas | `0.0.0.0/0 → Internet Gateway` |
 | Rutas privadas | solo `local` (sin internet) |
@@ -78,20 +78,20 @@ Lo que vamos a construir (ver [ARQUITECTURA.md §3](ARQUITECTURA.md#3-plan-de-di
 4. IPv4 CIDR block: `10.0.0.0/16` · IPv6: **No IPv6 CIDR block** · Tenancy: Default.
 5. Number of Availability Zones: **2**.
 6. Number of public subnets: **2** · Number of private subnets: **2**.
-7. **Customize subnets CIDR blocks**:
-   - Public subnet CIDR block in us-east-1a: `10.0.1.0/24`
-   - Public subnet CIDR block in us-east-1b: `10.0.2.0/24`
-   - Private subnet CIDR block in us-east-1a: `10.0.11.0/24`
-   - Private subnet CIDR block in us-east-1b: `10.0.12.0/24`
+7. **Bloques CIDR de las subredes:** deja los valores por defecto del asistente (no hace falta personalizarlos). Deben quedar así:
+   - Pública en us-east-2a: `10.0.0.0/20`
+   - Pública en us-east-2b: `10.0.16.0/20`
+   - Privada en us-east-2a: `10.0.128.0/20`
+   - Privada en us-east-2b: `10.0.144.0/20`
 8. NAT gateways: **None** ← importante, para que no haya costo.
 9. VPC endpoints: **None**.
 10. DNS options: ✅ Enable DNS hostnames · ✅ Enable DNS resolution.
 11. **Create VPC**. La vista previa muestra lo que se crea: la VPC, 4 subredes, el IGW y las tablas de rutas.
 12. Activa la IP pública automática en las subredes públicas:
-    **VPC → Subnets** → selecciona `diario-subnet-public1-us-east-1a` → **Actions → Edit subnet settings**
+    **VPC → Subnets** → selecciona `diario-subnet-public1-us-east-2a` → **Actions → Edit subnet settings**
     → ✅ *Enable auto-assign public IPv4 address* → Save. Repite con `public2`.
 
-> El asistente pone nombres como `diario-vpc`, `diario-subnet-public1-us-east-1a`, `diario-igw` y
+> El asistente pone nombres como `diario-vpc`, `diario-subnet-public1-us-east-2a`, `diario-igw` y
 > `diario-rtb-public`. Abre **Route tables** y confirma que la pública tiene `0.0.0.0/0 → igw-...`
 > y que las privadas solo tienen `10.0.0.0/16 → local`.
 
@@ -112,10 +112,10 @@ crear_subred() {  # uso: crear_subred <cidr> <zona> <nombre>
     --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=$3}]" \
     --query Subnet.SubnetId --output text
 }
-PUB_A=$(crear_subred 10.0.1.0/24  "$AZ_A" diario-public-a)
-PUB_B=$(crear_subred 10.0.2.0/24  "$AZ_B" diario-public-b)
-PRIV_A=$(crear_subred 10.0.11.0/24 "$AZ_A" diario-private-a)
-PRIV_B=$(crear_subred 10.0.12.0/24 "$AZ_B" diario-private-b)
+PUB_A=$(crear_subred 10.0.0.0/20  "$AZ_A" diario-public-a)
+PUB_B=$(crear_subred 10.0.16.0/20  "$AZ_B" diario-public-b)
+PRIV_A=$(crear_subred 10.0.128.0/20 "$AZ_A" diario-private-a)
+PRIV_B=$(crear_subred 10.0.144.0/20 "$AZ_B" diario-private-b)
 aws ec2 modify-subnet-attribute --subnet-id "$PUB_A" --map-public-ip-on-launch
 aws ec2 modify-subnet-attribute --subnet-id "$PUB_B" --map-public-ip-on-launch
 
@@ -222,7 +222,7 @@ icacls "$env:USERPROFILE\.ssh\diario-key.pem" /inheritance:r /grant:r "$($env:US
 5. Key pair: `diario-key`.
 6. Network settings → **Edit**:
    - VPC: **`diario-vpc`**.
-   - Subnet: **`diario-subnet-public1-us-east-1a`**, la **pública** A. ⚠️ No elijas una privada.
+   - Subnet: **`diario-subnet-public1-us-east-2a`**, la **pública** A. ⚠️ No elijas una privada.
    - **Auto-assign public IP: Enable**.
    - Firewall: **Select existing security group** → `diario-web-sg`.
 7. Storage: 8 GiB gp3 (lo que viene por defecto).
@@ -268,8 +268,8 @@ Primero se crea un **DB subnet group**: le dice a RDS en qué subredes puede viv
 **5.1 Subnet group**
 1. **RDS → Subnet groups → Create DB subnet group**.
 2. Name: `diario-db-subnets` · Description: `Subredes privadas del diario` · VPC: **`diario-vpc`**.
-3. Availability Zones: `us-east-1a` y `us-east-1b`.
-4. Subnets: elige **solo las privadas**, `10.0.11.0/24` y `10.0.12.0/24` → **Create**.
+3. Availability Zones: `us-east-2a` y `us-east-2b`.
+4. Subnets: elige **solo las privadas**, `10.0.128.0/20` y `10.0.144.0/20` → **Create**.
 
 **5.2 Base de datos**
 1. **RDS → Databases → Create database**.
@@ -285,13 +285,13 @@ Primero se crea un **DB subnet group**: le dice a RDS en qué subredes puede viv
    - VPC: **`diario-vpc`** · DB subnet group: **`diario-db-subnets`**.
    - **Public access: No**.
    - VPC security group: **Choose existing** → quita `default` y elige `diario-db-sg`.
-   - Availability Zone: `us-east-1a` (la misma del EC2, para menor latencia).
+   - Availability Zone: `us-east-2a` (la misma del EC2, para menor latencia).
    - Database port: 3306.
 7. **Additional configuration → Initial database name**: `diario`. La app también la crea si falta.
 8. Backup: retención de 1 día · desactiva *Enhanced monitoring* (puede tener costo).
 9. **Create database**. Tarda entre 5 y 10 minutos. Cuando el estado sea **Available**, entra a la base →
    **Connectivity & security** → copia el **Endpoint**
-   (ejemplo: `diario-db.abc123xyz.us-east-1.rds.amazonaws.com`).
+   (ejemplo: `diario-db.abc123xyz.us-east-2.rds.amazonaws.com`).
 
 ### ⌨️ CLI
 ```bash
@@ -366,12 +366,12 @@ docker run --rm hello-world            # debe imprimir "Hello from Docker!"
 
 **Antes** de levantar la app, comprueba que la red está bien. Así, si algo falla, sabrás que no es culpa del código:
 ```bash
-# ¿Resuelve el endpoint? Debe devolver una IP privada 10.0.11.x o 10.0.12.x
+# ¿Resuelve el endpoint? Debe devolver una IP privada entre 10.0.128.x y 10.0.159.x
 getent hosts <ENDPOINT_RDS>
 
 # ¿Llega el EC2 al puerto 3306 del RDS? (prueba el Security Group)
 nc -zv <ENDPOINT_RDS> 3306
-#   OK:    "Connected to 10.0.11.x:3306"
+#   OK:    "Connected to 10.0.x.x:3306" (IP privada)
 #   MAL:   se queda colgado / "timed out"  -> revisa diario-db-sg (paso 2)
 
 # ¿Funcionan usuario y contraseña? (prueba las credenciales)
